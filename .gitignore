@@ -1,0 +1,12 @@
+node_modules/
+dist/
+target/
+models/*.onnx
+models/*.bin
+models/*.pt
+models/**/*.onnx
+models/**/*.bin
+!models/.gitkeep
+.DS_Store
+*.swp
+*.swo
