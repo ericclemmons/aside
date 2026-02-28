@@ -27,6 +27,9 @@ class HotkeyManager {
     /// `true` if the event tap was successfully created (i.e. Accessibility permission is granted).
     private(set) var isAccessibilityGranted = false
 
+    /// `true` if the event tap is currently active.
+    var isRunning: Bool { eventTap != nil }
+
     /// Returns `true` if the app currently has Accessibility permission.
     static func checkAccessibilityPermission() -> Bool {
         return AXIsProcessTrustedWithOptions(

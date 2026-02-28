@@ -112,6 +112,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var enhancer: TextEnhancer?
     private var settingsWindowController: NSWindowController?
+    private var setupController: SetupWindowController?
 
     /// The context captured when recording starts.
     private var capturedContext: ActiveContext?
@@ -169,21 +170,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             enhancer = TextEnhancer()
         }
 
+        setupMenuBar()
+
+        // Show setup window to walk through permissions
+        setupController = SetupWindowController()
+        setupController?.show(
+            onSetupHotkey: { [weak self] in
+                self?.setupHotkey()
+            },
+            onComplete: { [weak self] in
+                guard let self else { return }
+                self.setupController = nil
+                // Hotkey may already be set up from try steps; ensure it's running
+                if !self.hotkeyManager.isRunning {
+                    self.setupHotkey()
+                }
+            }
+        )
+    }
+
+    private func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "waveform.circle", accessibilityDescription: "Aside")
-            button.image?.isTemplate = true
+            // Use SF Symbol directly as NSImage
+            let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+            if let img = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: "Aside") {
+                button.image = img.withSymbolConfiguration(config)
+                button.image?.isTemplate = true
+            } else {
+                // Fallback: text-based
+                button.title = "◉"
+            }
         }
         buildMenu()
-
-        Task {
-            let granted = await speechTranscriber.requestPermissions()
-            if !granted {
-                showPermissionAlert()
-                return
-            }
-            setupHotkey()
-        }
     }
 
     private func buildMenu() {
@@ -237,10 +256,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyManager.onKeyUp = { [weak self] in
             self?.endRecording()
         }
-        let started = hotkeyManager.start()
-        if !started {
-            showAccessibilityPermissionAlert()
-        }
+        hotkeyManager.start()
 
         hotkeyModeObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -258,10 +274,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard !isSessionActive else { return }
 
         activeSessionMode = hotkeyMode
-        capturedContext = ContextCapture.getActiveContext()
 
-        // Pre-fetch opencode sessions for toggle mode
+        // Only capture context and fetch sessions for dispatch mode
         if activeSessionMode == .toggle {
+            capturedContext = ContextCapture.getActiveContext()
             Task { await sessionManager.refresh() }
         }
 
@@ -446,27 +462,4 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
-    private func showPermissionAlert() {
-        let alert = NSAlert()
-        alert.messageText = "Permissions Required"
-        alert.informativeText = "Aside needs Microphone and Speech Recognition access. Please grant them in System Settings > Privacy & Security."
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Quit")
-        if alert.runModal() == .alertFirstButtonReturn {
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")!)
-        }
-        NSApp.terminate(nil)
-    }
-
-    private func showAccessibilityPermissionAlert() {
-        let alert = NSAlert()
-        alert.messageText = "Accessibility Permission Required"
-        alert.informativeText = "Aside needs Accessibility access to detect the Right Option key system-wide. Please enable Aside in System Settings > Privacy & Security > Accessibility, then relaunch the app."
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Quit")
-        if alert.runModal() == .alertFirstButtonReturn {
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-        }
-        NSApp.terminate(nil)
-    }
 }
