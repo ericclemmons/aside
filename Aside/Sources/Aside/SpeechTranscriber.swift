@@ -17,6 +17,8 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
 
     private var finalizeTimeoutTask: Task<Void, Never>?
     private var hasDeliveredFinalResult = false
+    /// Incremented each session to discard stale callbacks from cancelled tasks.
+    private var sessionID: UInt64 = 0
 
     var onTranscriptionFinished: ((String) -> Void)?
 
@@ -43,6 +45,7 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
         guard !isRecording else { return }
         guard let recognizer = speechRecognizer, recognizer.isAvailable else { return }
 
+        sessionID &+= 1
         cleanupSessionState()
         transcribedText = ""
         audioLevel = 0
@@ -150,12 +153,14 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
         audioEngine.prepare()
         try audioEngine.start()
 
+        let currentSession = sessionID
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
 
             if let result {
                 let text = result.bestTranscription.formattedString
                 Task { @MainActor in
+                    guard self.sessionID == currentSession else { return }
                     self.transcribedText = text
                     if result.isFinal {
                         self.finishRecognition(with: text)
@@ -170,6 +175,7 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
                 }
 
                 Task { @MainActor in
+                    guard self.sessionID == currentSession else { return }
                     if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
                         self.finishRecognition(with: "")
                         return

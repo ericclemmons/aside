@@ -6,6 +6,8 @@
     <string>Aside</string>
     <key>CFBundleIdentifier</key>
     <string>com.aside.app</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleName</key>
     <string>Aside</string>
     <key>CFBundlePackageType</key>

@@ -93,17 +93,40 @@ class SetupState: ObservableObject {
     @Published var speechGranted = false
     @Published var accessibilityGranted = false
     @Published var tryInput: String = ""
+    @Published var tryDispatchTested: Bool = false
 
     var onComplete: (() -> Void)?
     /// Called when setup needs the hotkey to be active for "try" steps.
     /// Parameter is the mode to use for the step.
     var onSetupHotkey: ((HotkeyMode) -> Void)?
 
+    /// Call when a tap-to-dispatch cycle completes (or is cancelled) during setup.
+    func markDispatchTested() {
+        tryDispatchTested = true
+    }
+
     func checkPermissions() {
         micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         speechGranted = SFSpeechRecognizer.authorizationStatus() == .authorized
         accessibilityGranted = AXIsProcessTrustedWithOptions(nil)
         print("[Setup] Permissions — mic: \(micGranted), speech: \(speechGranted), accessibility: \(accessibilityGranted)")
+
+        // Clear stale TCC entries from previous builds so the fresh binary
+        // can re-request permissions cleanly.
+        if !micGranted { resetTCC("Microphone") }
+        if !speechGranted { resetTCC("SpeechRecognition") }
+        if !accessibilityGranted { resetTCC("Accessibility") }
+    }
+
+    private func resetTCC(_ service: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        process.arguments = ["reset", service, "com.aside.app"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+        process.waitUntilExit()
+        print("[Setup] Reset TCC for \(service)")
     }
 
     func advance() {
@@ -146,19 +169,32 @@ class SetupState: ObservableObject {
         case .welcome:
             advance()
         case .microphone:
-            Task {
-                let granted = await AVCaptureDevice.requestAccess(for: .audio)
-                NSApp.activate(ignoringOtherApps: true)
-                micGranted = granted
-                if granted { advance() }
+            let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+            if micStatus == .denied || micStatus == .restricted {
+                // Already denied — open System Settings and poll
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
+                startPermissionPolling()
+            } else {
+                Task {
+                    let granted = await AVCaptureDevice.requestAccess(for: .audio)
+                    NSApp.activate(ignoringOtherApps: true)
+                    micGranted = granted
+                    if granted { advance() }
+                }
             }
         case .speechRecognition:
-            SFSpeechRecognizer.requestAuthorization { [weak self] status in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    NSApp.activate(ignoringOtherApps: true)
-                    self.speechGranted = status == .authorized
-                    if status == .authorized { self.advance() }
+            let speechStatus = SFSpeechRecognizer.authorizationStatus()
+            if speechStatus == .denied || speechStatus == .restricted {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")!)
+                startPermissionPolling()
+            } else {
+                SFSpeechRecognizer.requestAuthorization { [weak self] status in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        NSApp.activate(ignoringOtherApps: true)
+                        self.speechGranted = status == .authorized
+                        if status == .authorized { self.advance() }
+                    }
                 }
             }
         case .accessibility:
@@ -169,7 +205,7 @@ class SetupState: ObservableObject {
             if trusted {
                 advance()
             } else {
-                startAccessibilityPolling()
+                startPermissionPolling()
             }
         case .tryHoldToType, .tryTapToDispatch:
             // "Skip" button
@@ -179,17 +215,33 @@ class SetupState: ObservableObject {
         }
     }
 
-    private var accessibilityTimer: Timer?
+    private var permissionTimer: Timer?
+    @Published var isPollingPermission = false
 
-    private func startAccessibilityPolling() {
-        accessibilityTimer?.invalidate()
-        accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+    private func startPermissionPolling() {
+        isPollingPermission = true
+        permissionTimer?.invalidate()
+        permissionTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if AXIsProcessTrustedWithOptions(nil) {
-                    self.accessibilityGranted = true
-                    self.accessibilityTimer?.invalidate()
-                    self.accessibilityTimer = nil
+                var granted = false
+                switch self.currentStep {
+                case .microphone:
+                    granted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+                    self.micGranted = granted
+                case .speechRecognition:
+                    granted = SFSpeechRecognizer.authorizationStatus() == .authorized
+                    self.speechGranted = granted
+                case .accessibility:
+                    granted = AXIsProcessTrustedWithOptions(nil)
+                    self.accessibilityGranted = granted
+                default:
+                    break
+                }
+                if granted {
+                    self.permissionTimer?.invalidate()
+                    self.permissionTimer = nil
+                    self.isPollingPermission = false
                     NSApp.activate(ignoringOtherApps: true)
                     self.advance()
                 }
@@ -254,6 +306,7 @@ struct SetupView: View {
                     .focused($tryInputFocused)
                     .frame(maxWidth: 300)
                     .onAppear { tryInputFocused = true }
+                    .onSubmit { if !state.tryInput.isEmpty { state.advance() } }
                     .padding(.bottom, 16)
             }
 
@@ -263,8 +316,8 @@ struct SetupView: View {
                     .padding(.bottom, 12)
             }
 
-            // Waiting for accessibility
-            if state.currentStep == .accessibility && !state.accessibilityGranted {
+            // Waiting for permission toggle in System Settings
+            if state.isPollingPermission {
                 HStack(spacing: 6) {
                     ProgressView()
                         .controlSize(.small)
@@ -285,6 +338,8 @@ struct SetupView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            .disabled(isContinueDisabled)
 
             Spacer()
         }
@@ -297,6 +352,13 @@ struct SetupView: View {
         case .done: return .green
         case .tryHoldToType, .tryTapToDispatch: return .orange
         default: return .accentColor
+        }
+    }
+
+    private var isContinueDisabled: Bool {
+        switch state.currentStep {
+        case .tryHoldToType: return state.tryInput.isEmpty
+        default: return false
         }
     }
 
@@ -313,7 +375,18 @@ struct SetupView: View {
         if isCurrentStepGranted {
             return "Continue"
         }
-        return state.currentStep.buttonLabel
+        if state.isPollingPermission {
+            return state.currentStep.buttonLabel
+        }
+        // Show "Open Settings" if permission was previously denied
+        switch state.currentStep {
+        case .microphone where AVCaptureDevice.authorizationStatus(for: .audio) == .denied:
+            return "Open Microphone Settings"
+        case .speechRecognition where SFSpeechRecognizer.authorizationStatus() == .denied:
+            return "Open Speech Settings"
+        default:
+            return state.currentStep.buttonLabel
+        }
     }
 
     private var permissionGrantedBadge: some View {
@@ -331,10 +404,12 @@ struct SetupView: View {
 
 class SetupWindowController {
     private var windowController: NSWindowController?
+    private(set) var state: SetupState?
 
     @MainActor
     func show(onSetupHotkey: ((HotkeyMode) -> Void)? = nil, onComplete: @escaping () -> Void) {
         let state = SetupState()
+        self.state = state
         state.checkPermissions()
 
         // If all permissions already granted, skip setup entirely
@@ -375,5 +450,6 @@ class SetupWindowController {
     func close() {
         windowController?.window?.close()
         windowController = nil
+        state = nil
     }
 }

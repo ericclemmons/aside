@@ -10,6 +10,8 @@ import AppKit
 class HotkeyManager {
     var onKeyDown: (() -> Void)?
     var onKeyUp: (() -> Void)?
+    /// Called when the user presses Escape during a toggle session.
+    var onCancel: (() -> Void)?
 
     /// The current hotkey mode. Can be changed at runtime.
     var mode: HotkeyMode = .holdToTalk
@@ -30,6 +32,12 @@ class HotkeyManager {
     /// `true` if the event tap is currently active.
     var isRunning: Bool { eventTap != nil }
 
+    /// Reset toggle state when a session is cancelled externally (e.g. click-outside).
+    func resetToggle() {
+        isToggleActive = false
+        isKeyDown = false
+    }
+
     /// Returns `true` if the app currently has Accessibility permission.
     static func checkAccessibilityPermission() -> Bool {
         return AXIsProcessTrustedWithOptions(
@@ -40,7 +48,8 @@ class HotkeyManager {
     @discardableResult
     func start() -> Bool {
         let eventMask: CGEventMask =
-            (1 << CGEventType.flagsChanged.rawValue)
+            (1 << CGEventType.flagsChanged.rawValue) |
+            (1 << CGEventType.keyDown.rawValue)
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -80,6 +89,17 @@ class HotkeyManager {
     }
 
     private func handleEvent(type: CGEventType, event: CGEvent) {
+        // Escape (keycode 53) cancels any active recording
+        if type == .keyDown {
+            let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+            if keyCode == 53 {
+                isToggleActive = false
+                isKeyDown = false
+                Task { @MainActor in self.onCancel?() }
+            }
+            return
+        }
+
         guard type == .flagsChanged else { return }
 
         // Check if this is the Right Option key specifically (keycode 61)

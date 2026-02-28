@@ -65,7 +65,6 @@ enum AppPreferenceKey {
     static let enhancementSystemPrompt = "enhancementSystemPrompt"
     static let hotkeyMode = "hotkeyMode"
     static let whisperModelVariant = "whisperModelVariant"
-    static let cliTarget = "cliTarget"
 
     static let defaultEnhancementPrompt = """
         You are Aside, a speech-to-text transcription assistant. Your only job is to \
@@ -117,8 +116,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// The context captured when recording starts.
     private var capturedContext: ActiveContext?
 
-    /// Which hotkey mode was active when the current session started.
-    private var activeSessionMode: HotkeyMode = .holdToTalk
+    /// Recording state machine — single source of truth, no boolean flags.
+    private enum RecordingPhase {
+        case idle
+        case recording           // key held down, recording
+        case persistent          // key released with no text, still recording
+        case finishingHoldToType // transcriber stopping, will type text
+        case finishingDispatch   // transcriber stopping, will show picker
+    }
+    private var phase: RecordingPhase = .idle
+
+    /// Global click monitor to dismiss persistent recording.
+    private var clickMonitor: Any?
 
     var transcriptionEngine: TranscriptionEngine {
         get {
@@ -150,18 +159,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    var cliTarget: CLITarget {
-        get {
-            let raw = UserDefaults.standard.string(forKey: AppPreferenceKey.cliTarget)
-            return CLITarget(rawValue: raw ?? "") ?? .claude
-        }
-        set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: AppPreferenceKey.cliTarget)
-        }
-    }
 
-    private var hotkeyModeObserver: NSObjectProtocol?
-    private var isSessionActive = false
+    /// Derived from phase — no separate boolean.
+    private var isSessionActive: Bool { phase != .idle }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -175,12 +175,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Show setup window to walk through permissions
         setupController = SetupWindowController()
         setupController?.show(
-            onSetupHotkey: { [weak self] mode in
+            onSetupHotkey: { [weak self] _ in
                 guard let self else { return }
                 if !self.hotkeyManager.isRunning {
                     self.setupHotkey()
                 }
-                self.hotkeyManager.mode = mode
             },
             onComplete: { [weak self] in
                 guard let self else { return }
@@ -253,38 +252,83 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupHotkey() {
-        hotkeyManager.mode = hotkeyMode
+        hotkeyManager.mode = .holdToTalk  // Always raw press/release
         hotkeyManager.onKeyDown = { [weak self] in
-            self?.beginRecording()
+            self?.handleKeyDown()
         }
         hotkeyManager.onKeyUp = { [weak self] in
-            self?.endRecording()
+            self?.handleKeyUp()
+        }
+        hotkeyManager.onCancel = { [weak self] in
+            self?.cancelRecording()
         }
         hotkeyManager.start()
+    }
 
-        hotkeyModeObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            self.hotkeyManager.mode = self.hotkeyMode
+    // MARK: - Recording State Machine
+
+    private func handleKeyDown() {
+        print("[Recording] handleKeyDown phase=\(phase)")
+        switch phase {
+        case .idle:
+            // Start recording
+            startRecording()
+            phase = .recording
+
+        case .recording:
+            // Shouldn't happen (key already down), ignore
+            break
+
+        case .persistent:
+            // Second press while recording in persistent mode
+            let hasText = !overlayState.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if hasText {
+                // Stop recording and show dispatch picker
+                phase = .finishingDispatch
+                stopTranscriber()
+            } else {
+                // No text — cancel
+                cancelRecording()
+            }
+
+        case .finishingHoldToType, .finishingDispatch:
+            // Transcriber is stopping, ignore key presses
+            break
         }
     }
 
-    // MARK: - Recording Flow
+    private func handleKeyUp() {
+        print("[Recording] handleKeyUp phase=\(phase)")
+        guard phase == .recording else { return }
 
-    private func beginRecording() {
-        guard !isSessionActive else { return }
-
-        activeSessionMode = hotkeyMode
-
-        // Only capture context and fetch sessions for dispatch mode
-        if activeSessionMode == .toggle {
-            capturedContext = ContextCapture.getActiveContext()
+        let hasText = !overlayState.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if hasText {
+            // Hold-to-type: stop and deliver
+            phase = .finishingHoldToType
+            stopTranscriber()
+        } else {
+            // No text yet — enter persistent mode (keep recording)
+            phase = .persistent
+            // Capture context and refresh sessions async to avoid blocking main thread
+            Task {
+                let ctx = await Task.detached { ContextCapture.getActiveContext() }.value
+                self.capturedContext = ctx
+            }
             Task { await sessionManager.refresh() }
+            // Click anywhere to cancel persistent recording
+            clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+                self?.cancelRecording()
+            }
+        }
+    }
+
+    private func startRecording() {
+        guard phase == .idle else {
+            print("[Recording] BLOCKED — phase=\(phase)")
+            return
         }
 
+        // Transition to recording happens in handleKeyDown after this returns
         if transcriptionEngine == .whisper {
             let modelState = whisperModelManager.state
             if case .notDownloaded = modelState {
@@ -294,7 +338,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        isSessionActive = true
         let words = customWordsManager.words
 
         if transcriptionEngine == .whisper, isWhisperReady {
@@ -329,21 +372,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func endRecording() {
-        guard isSessionActive else { return }
-
+    /// Stop the active transcriber (triggers onTranscriptionFinished).
+    private func stopTranscriber() {
         if transcriptionEngine == .whisper, isWhisperReady {
             whisperTranscriber?.stopRecording()
             overlayState.isEnhancing = true
         } else {
             speechTranscriber.stopRecording()
-            // For hold-to-talk with dictation, give a short delay for final result
-            if activeSessionMode == .holdToTalk {
-                let waitingForAI = enhancementMode == .appleIntelligence && enhancer != nil
-                if !waitingForAI {
-                    // processTranscription will be called by onTranscriptionFinished
-                }
-            }
         }
     }
 
@@ -351,8 +386,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func processTranscription(_ rawText: String) {
         overlayState.isEnhancing = false
+        print("[Transcription] processTranscription called, phase=\(phase), text=\(rawText.prefix(50))")
 
         guard !rawText.isEmpty else {
+            print("[Transcription] Empty text, finishing session")
             finishSession()
             return
         }
@@ -384,19 +421,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Route the final text based on the active hotkey mode.
+    /// Route the final text based on the recording phase.
     private func deliverTranscription(_ text: String, engine: TranscriptionEngine, wasEnhanced: Bool) {
         historyManager.addRecord(TranscriptionRecord(text: text, engine: engine, wasEnhanced: wasEnhanced))
 
-        switch activeSessionMode {
-        case .holdToTalk:
-            // Type directly into the active text field via CGEvent
+        switch phase {
+        case .finishingDispatch:
+            phase = .idle
+            showDispatchPicker(text: text)
+        default:
+            // Hold-to-type or any other state: type and finish
+            phase = .idle
             typeText(text)
             finishSession()
-
-        case .toggle:
-            // Show the dispatch picker
-            showDispatchPicker(text: text)
         }
     }
 
@@ -425,7 +462,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Build destination list
         var destinations: [DispatchDestination] = [
-            .newClaude(),
             .newOpenCode(),
         ]
 
@@ -434,7 +470,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             destinations.append(.openCodeSession(session))
         }
 
-        overlayState.showPicker(destinations: destinations) { [weak self] picked in
+        overlayState.showPicker(destinations: destinations, prompt: prompt) { [weak self] picked, editedPrompt in
             guard let self else { return }
 
             // "cancel" is a synthetic destination from Escape key
@@ -443,20 +479,45 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
-            CLIDispatcher.dispatch(prompt: prompt, target: picked.target, sessionID: picked.sessionID)
+            let finalPrompt = editedPrompt.isEmpty ? prompt : editedPrompt
+            CLIDispatcher.dispatch(prompt: finalPrompt, sessionID: picked.sessionID)
             self.finishSession()
         }
 
         overlayWindow.enableKeyboardNavigation(state: overlayState)
     }
 
+    // MARK: - Cancel recording (Escape during toggle)
+
+    private func cancelRecording() {
+        guard phase != .idle else { return }
+        phase = .idle
+        hotkeyManager.resetToggle()
+        // Stop without delivering — suppress the callback
+        if transcriptionEngine == .whisper, isWhisperReady {
+            whisperTranscriber?.onTranscriptionFinished = nil
+            whisperTranscriber?.stopRecording()
+        } else {
+            speechTranscriber.onTranscriptionFinished = nil
+            speechTranscriber.stopRecording()
+        }
+        finishSession()
+    }
+
     // MARK: - Session cleanup
 
     private func finishSession() {
+        print("[Recording] finishSession called, phase=\(phase)")
+        if let monitor = clickMonitor {
+            NSEvent.removeMonitor(monitor)
+            clickMonitor = nil
+        }
+        phase = .idle
         overlayWindow.hide()
         overlayState.reset()
-        isSessionActive = false
         capturedContext = nil
+        setupController?.state?.markDispatchTested()
+        print("[Recording] finishSession done")
     }
 
     // MARK: - Permissions
