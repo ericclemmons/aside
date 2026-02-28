@@ -96,7 +96,8 @@ class SetupState: ObservableObject {
 
     var onComplete: (() -> Void)?
     /// Called when setup needs the hotkey to be active for "try" steps.
-    var onSetupHotkey: (() -> Void)?
+    /// Parameter is the mode to use for the step.
+    var onSetupHotkey: ((HotkeyMode) -> Void)?
 
     func checkPermissions() {
         micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
@@ -126,9 +127,10 @@ class SetupState: ObservableObject {
             currentStep = next
             advance()
             return
-        case .tryHoldToType, .tryTapToDispatch:
-            // Set up hotkey for try steps
-            onSetupHotkey?()
+        case .tryHoldToType:
+            onSetupHotkey?(.holdToTalk)
+        case .tryTapToDispatch:
+            onSetupHotkey?(.toggle)
         default:
             break
         }
@@ -331,7 +333,7 @@ class SetupWindowController {
     private var windowController: NSWindowController?
 
     @MainActor
-    func show(onSetupHotkey: (() -> Void)? = nil, onComplete: @escaping () -> Void) {
+    func show(onSetupHotkey: ((HotkeyMode) -> Void)? = nil, onComplete: @escaping () -> Void) {
         let state = SetupState()
         state.checkPermissions()
 

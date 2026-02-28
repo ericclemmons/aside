@@ -175,8 +175,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Show setup window to walk through permissions
         setupController = SetupWindowController()
         setupController?.show(
-            onSetupHotkey: { [weak self] in
-                self?.setupHotkey()
+            onSetupHotkey: { [weak self] mode in
+                guard let self else { return }
+                if !self.hotkeyManager.isRunning {
+                    self.setupHotkey()
+                }
+                self.hotkeyManager.mode = mode
             },
             onComplete: { [weak self] in
                 guard let self else { return }
