@@ -30,7 +30,6 @@ struct ContentView: View {
     @ObservedObject var whisperModelManager: WhisperModelManager
     @ObservedObject var historyManager: TranscriptionHistoryManager
     @ObservedObject var customWordsManager: CustomWordsManager
-    @ObservedObject var sessionManager: SessionManager
 
     @State private var selectedTab: SettingsTab = .general
 
@@ -46,8 +45,7 @@ struct ContentView: View {
                 switch selectedTab {
                 case .general:
                     GeneralSettingsView(
-                        whisperModelManager: whisperModelManager,
-                        sessionManager: sessionManager
+                        whisperModelManager: whisperModelManager
                     )
                 case .vocabulary:
                     VocabularySettingsView(customWordsManager: customWordsManager)
@@ -98,10 +96,8 @@ private struct GeneralSettingsView: View {
     @AppStorage(AppPreferenceKey.enhancementMode) private var enhancementModeRaw = EnhancementMode.off.rawValue
     @AppStorage(AppPreferenceKey.enhancementSystemPrompt) private var systemPrompt = AppPreferenceKey.defaultEnhancementPrompt
     @AppStorage(AppPreferenceKey.hotkeyMode) private var hotkeyModeRaw = HotkeyMode.holdToTalk.rawValue
-    @AppStorage(AppPreferenceKey.cliTarget) private var cliTargetRaw = CLITarget.claude.rawValue
 
     @ObservedObject var whisperModelManager: WhisperModelManager
-    @ObservedObject var sessionManager: SessionManager
 
     private var selectedEngine: TranscriptionEngine {
         TranscriptionEngine(rawValue: engineRaw) ?? .dictation
@@ -111,10 +107,6 @@ private struct GeneralSettingsView: View {
         HotkeyMode(rawValue: hotkeyModeRaw) ?? .holdToTalk
     }
 
-    private var selectedCLITarget: CLITarget {
-        CLITarget(rawValue: cliTargetRaw) ?? .claude
-    }
-
     private var appleIntelligenceAvailable: Bool {
         TextEnhancer.isAvailable
     }
@@ -122,43 +114,24 @@ private struct GeneralSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                // MARK: CLI Target
-                formRow("Dispatch to:") {
-                    Picker("Target", selection: $cliTargetRaw) {
-                        ForEach(CLITarget.allCases) { target in
-                            Text(target.title).tag(target.rawValue)
+                // MARK: Hotkey
+                formRow("Hotkey mode:") {
+                    Picker("Mode", selection: $hotkeyModeRaw) {
+                        ForEach(HotkeyMode.allCases) { mode in
+                            Text(mode.title).tag(mode.rawValue)
                         }
                     }
                     .labelsHidden()
                 }
 
-                formRow("") {
-                    Text(selectedCLITarget.description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                formRow("Shortcut:") {
+                    KeyCapView("Right ⌥")
                 }
 
-                // OpenCode session picker
-                if selectedCLITarget == .opencode {
-                    formRow("Session:") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Picker("Session", selection: Binding(
-                                get: { sessionManager.selectedSessionID ?? "" },
-                                set: { sessionManager.selectedSessionID = $0.isEmpty ? nil : $0 }
-                            )) {
-                                Text("New Session").tag("")
-                                ForEach(sessionManager.sessions) { session in
-                                    Text(session.name).tag(session.id)
-                                }
-                            }
-                            .labelsHidden()
-
-                            Button("Refresh") {
-                                Task { await sessionManager.refresh() }
-                            }
-                            .controlSize(.small)
-                        }
-                    }
+                formRow("") {
+                    Text(selectedHotkeyMode.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 sectionDivider()
@@ -195,28 +168,6 @@ private struct GeneralSettingsView: View {
                             whisperModelStatusRow
                         }
                     }
-                }
-
-                sectionDivider()
-
-                // MARK: Hotkey
-                formRow("Hotkey mode:") {
-                    Picker("Mode", selection: $hotkeyModeRaw) {
-                        ForEach(HotkeyMode.allCases) { mode in
-                            Text(mode.title).tag(mode.rawValue)
-                        }
-                    }
-                    .labelsHidden()
-                }
-
-                formRow("Shortcut:") {
-                    KeyCapView("Right ⌥")
-                }
-
-                formRow("") {
-                    Text(selectedHotkeyMode.description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
                 sectionDivider()
@@ -274,11 +225,6 @@ private struct GeneralSettingsView: View {
                 Spacer(minLength: 20)
             }
             .padding(.top, 12)
-        }
-        .onAppear {
-            if selectedCLITarget == .opencode {
-                Task { await sessionManager.refresh() }
-            }
         }
     }
 

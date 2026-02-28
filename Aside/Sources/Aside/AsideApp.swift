@@ -32,15 +32,15 @@ enum HotkeyMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .holdToTalk: return "Hold to Talk"
-        case .toggle: return "Press to Toggle"
+        case .holdToTalk: return "Hold to Type"
+        case .toggle: return "Tap to Dispatch"
         }
     }
 
     var description: String {
         switch self {
-        case .holdToTalk: return "Hold the hotkey to record, release to stop."
-        case .toggle: return "Press the hotkey once to start, press again to stop."
+        case .holdToTalk: return "Hold Right ⌥ to record — transcription is typed into the active field on release."
+        case .toggle: return "Tap Right ⌥ to start recording, tap again to stop — then choose where to send the prompt."
         }
     }
 }
@@ -87,8 +87,7 @@ struct AsideApp: App {
             ContentView(
                 whisperModelManager: appDelegate.whisperModelManager,
                 historyManager: appDelegate.historyManager,
-                customWordsManager: appDelegate.customWordsManager,
-                sessionManager: appDelegate.sessionManager
+                customWordsManager: appDelegate.customWordsManager
             )
             .frame(minWidth: 480, maxWidth: 520)
         }
@@ -116,6 +115,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The context captured when recording starts.
     private var capturedContext: ActiveContext?
+
+    /// Which hotkey mode was active when the current session started.
+    private var activeSessionMode: HotkeyMode = .holdToTalk
 
     var transcriptionEngine: TranscriptionEngine {
         get {
@@ -160,29 +162,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeyModeObserver: NSObjectProtocol?
     private var isSessionActive = false
 
-    /// Returns the currently active transcriber based on the user's engine preference.
-    private var activeTranscriber: (any TranscriberProtocol)? {
-        switch transcriptionEngine {
-        case .dictation:
-            return speechTranscriber
-        case .whisper:
-            if whisperTranscriber == nil {
-                whisperTranscriber = WhisperTranscriber(modelManager: whisperModelManager)
-            }
-            return whisperTranscriber
-        }
-    }
-
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Run as an accessory so no Dock icon appears
         NSApp.setActivationPolicy(.accessory)
 
-        // Set up Apple Intelligence enhancer if available
         if TextEnhancer.isAvailable {
             enhancer = TextEnhancer()
         }
 
-        // Menu bar icon
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem?.button {
             button.image = NSImage(systemSymbolName: "waveform.circle", accessibilityDescription: "Aside")
@@ -202,7 +188,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func buildMenu() {
         let menu = NSMenu()
-
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
@@ -221,8 +206,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let contentView = ContentView(
             whisperModelManager: whisperModelManager,
             historyManager: historyManager,
-            customWordsManager: customWordsManager,
-            sessionManager: sessionManager
+            customWordsManager: customWordsManager
         )
         .frame(minWidth: 480, maxWidth: 520)
         let hostingController = NSHostingController(rootView: contentView)
@@ -258,7 +242,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             showAccessibilityPermissionAlert()
         }
 
-        // Observe changes to hotkey mode preference so it updates at runtime
         hotkeyModeObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
@@ -269,18 +252,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - Recording Flow
+
     private func beginRecording() {
         guard !isSessionActive else { return }
 
-        // Capture context from the active window before we start recording
+        activeSessionMode = hotkeyMode
         capturedContext = ContextCapture.getActiveContext()
 
-        // Refresh opencode sessions in the background
-        if cliTarget == .opencode {
+        // Pre-fetch opencode sessions for toggle mode
+        if activeSessionMode == .toggle {
             Task { await sessionManager.refresh() }
         }
 
-        // If Whisper is selected but the model isn't downloaded yet, fall back to dictation
         if transcriptionEngine == .whisper {
             let modelState = whisperModelManager.state
             if case .notDownloaded = modelState {
@@ -291,11 +275,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         isSessionActive = true
-
-        // Pass current custom words to the transcriber
         let words = customWordsManager.words
 
-        // Use the appropriate transcriber
         if transcriptionEngine == .whisper, isWhisperReady {
             let whisper = whisperTranscriber ?? WhisperTranscriber(modelManager: whisperModelManager)
             whisperTranscriber = whisper
@@ -319,7 +300,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Whether the Whisper model is downloaded and available for use.
     private var isWhisperReady: Bool {
         switch whisperModelManager.state {
         case .downloaded, .ready, .loading:
@@ -334,89 +314,132 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if transcriptionEngine == .whisper, isWhisperReady {
             whisperTranscriber?.stopRecording()
-            // For Whisper, transcription happens after stop — the overlay stays visible
-            // until onTranscriptionFinished fires via processTranscription
-            overlayState.isEnhancing = true // Show processing state while Whisper works
+            overlayState.isEnhancing = true
         } else {
             speechTranscriber.stopRecording()
-            let waitingForAI = enhancementMode == .appleIntelligence && enhancer != nil
-            if !waitingForAI {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                    self?.overlayWindow.hide()
-                    self?.isSessionActive = false
+            // For hold-to-talk with dictation, give a short delay for final result
+            if activeSessionMode == .holdToTalk {
+                let waitingForAI = enhancementMode == .appleIntelligence && enhancer != nil
+                if !waitingForAI {
+                    // processTranscription will be called by onTranscriptionFinished
                 }
             }
         }
     }
 
+    // MARK: - Process Transcription (dual-mode)
+
     private func processTranscription(_ rawText: String) {
-        // Clear the "processing" state from Whisper
         overlayState.isEnhancing = false
 
         guard !rawText.isEmpty else {
-            overlayWindow.hide()
-            isSessionActive = false
+            finishSession()
             return
         }
 
         let engine = transcriptionEngine
-        let context = capturedContext
-        let target = cliTarget
-        let sessionID = sessionManager.selectedSessionID
 
-        // Build prompt with context
-        let prompt = PromptBuilder.buildPrompt(transcription: rawText, context: context)
-
+        // Optionally enhance text first
         if enhancementMode == .appleIntelligence, let enhancer {
             overlayState.isEnhancing = true
-            if transcriptionEngine == .whisper {
-                whisperTranscriber?.isEnhancing = true
-            } else {
-                speechTranscriber.isEnhancing = true
-            }
             Task {
-                defer {
-                    self.overlayState.isEnhancing = false
-                    if self.transcriptionEngine == .whisper {
-                        self.whisperTranscriber?.isEnhancing = false
-                    } else {
-                        self.speechTranscriber.isEnhancing = false
-                    }
-                    self.overlayWindow.hide()
-                    self.isSessionActive = false
-                    self.capturedContext = nil
-                }
+                let finalText: String
                 do {
                     var sysPrompt = UserDefaults.standard.string(forKey: AppPreferenceKey.enhancementSystemPrompt)
                         ?? AppPreferenceKey.defaultEnhancementPrompt
                     let words = self.customWordsManager.words
                     if !words.isEmpty {
-                        sysPrompt += "\n\nIMPORTANT: The following are custom words, names, or abbreviations the user has defined. Always preserve their exact spelling and casing: \(words.joined(separator: ", "))."
+                        sysPrompt += "\n\nIMPORTANT: Preserve these custom words exactly: \(words.joined(separator: ", "))."
                     }
-                    let enhanced = try await enhancer.enhance(rawText, systemPrompt: sysPrompt)
-                    let enhancedPrompt = PromptBuilder.buildPrompt(transcription: enhanced, context: context)
-                    CLIDispatcher.dispatch(prompt: enhancedPrompt, target: target, sessionID: sessionID)
-                    self.historyManager.addRecord(
-                        TranscriptionRecord(text: enhanced, engine: engine, wasEnhanced: true)
-                    )
+                    finalText = try await enhancer.enhance(rawText, systemPrompt: sysPrompt)
                 } catch {
-                    print("AI enhancement failed, using raw text: \(error)")
-                    CLIDispatcher.dispatch(prompt: prompt, target: target, sessionID: sessionID)
-                    self.historyManager.addRecord(
-                        TranscriptionRecord(text: rawText, engine: engine, wasEnhanced: false)
-                    )
+                    print("AI enhancement failed: \(error)")
+                    finalText = rawText
                 }
+                self.overlayState.isEnhancing = false
+                self.deliverTranscription(finalText, engine: engine, wasEnhanced: finalText != rawText)
             }
         } else {
-            CLIDispatcher.dispatch(prompt: prompt, target: target, sessionID: sessionID)
-            historyManager.addRecord(
-                TranscriptionRecord(text: rawText, engine: engine, wasEnhanced: false)
-            )
-            overlayWindow.hide()
-            isSessionActive = false
-            capturedContext = nil
+            deliverTranscription(rawText, engine: engine, wasEnhanced: false)
         }
     }
+
+    /// Route the final text based on the active hotkey mode.
+    private func deliverTranscription(_ text: String, engine: TranscriptionEngine, wasEnhanced: Bool) {
+        historyManager.addRecord(TranscriptionRecord(text: text, engine: engine, wasEnhanced: wasEnhanced))
+
+        switch activeSessionMode {
+        case .holdToTalk:
+            // Type directly into the active text field via CGEvent
+            typeText(text)
+            finishSession()
+
+        case .toggle:
+            // Show the dispatch picker
+            showDispatchPicker(text: text)
+        }
+    }
+
+    // MARK: - Hold-to-Talk: Type text via CGEvent (no clipboard)
+
+    private func typeText(_ text: String) {
+        guard !text.isEmpty else { return }
+        let source = CGEventSource(stateID: .hidSystemState)
+
+        for char in text {
+            var utf16 = Array(String(char).utf16)
+            let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true)
+            let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
+            keyDown?.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
+            keyUp?.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
+            keyDown?.post(tap: .cgAnnotatedSessionEventTap)
+            keyUp?.post(tap: .cgAnnotatedSessionEventTap)
+        }
+    }
+
+    // MARK: - Toggle: Dispatch picker
+
+    private func showDispatchPicker(text: String) {
+        let context = capturedContext
+        let prompt = PromptBuilder.buildPrompt(transcription: text, context: context)
+
+        // Build destination list
+        var destinations: [DispatchDestination] = [
+            .newClaude(),
+            .newOpenCode(),
+        ]
+
+        // Add existing opencode sessions
+        for session in sessionManager.sessions.prefix(5) {
+            destinations.append(.openCodeSession(session))
+        }
+
+        overlayState.showPicker(destinations: destinations) { [weak self] picked in
+            guard let self else { return }
+
+            // "cancel" is a synthetic destination from Escape key
+            guard picked.id != "cancel" else {
+                self.finishSession()
+                return
+            }
+
+            CLIDispatcher.dispatch(prompt: prompt, target: picked.target, sessionID: picked.sessionID)
+            self.finishSession()
+        }
+
+        overlayWindow.enableKeyboardNavigation(state: overlayState)
+    }
+
+    // MARK: - Session cleanup
+
+    private func finishSession() {
+        overlayWindow.hide()
+        overlayState.reset()
+        isSessionActive = false
+        capturedContext = nil
+    }
+
+    // MARK: - Permissions
 
     @objc private func quit() {
         hotkeyManager.stop()
