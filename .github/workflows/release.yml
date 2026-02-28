@@ -61,7 +61,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Voice Assistant ${{ github.ref_name }}"
+          releaseName: "Aside ${{ github.ref_name }}"
           releaseBody: "See the assets below to download and install."
           releaseDraft: true
           prerelease: false
@@ -104,7 +104,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Voice Assistant ${{ github.ref_name }}"
+          releaseName: "Aside ${{ github.ref_name }}"
           releaseBody: "See the assets below to download and install."
           releaseDraft: true
           prerelease: false
@@ -134,7 +134,7 @@ jobs:
         run: |
           VERSION=${{ steps.version.outputs.version }}
           # The DMG filename pattern from tauri-action
-          DMG_NAME="Voice Assistant_${VERSION}_universal.dmg"
+          DMG_NAME="Aside_${VERSION}_universal.dmg"
 
           # Download the DMG from the release
           gh release download "$GITHUB_REF_NAME" \
@@ -182,31 +182,31 @@ jobs:
           mkdir -p Casks
 
           # Write the updated cask formula
-          cat > Casks/voice-assistant.rb << CASK_EOF
-          cask "voice-assistant" do
+          cat > Casks/aside.rb << CASK_EOF
+          cask "aside" do
             version "${VERSION}"
             sha256 "${SHA256}"
 
             url "https://github.com/${REPO_OWNER}/animated-tribble/releases/download/v#{version}/${FILENAME}"
-            name "Voice Assistant"
+            name "Aside"
             desc "macOS push-to-talk voice assistant with local Parakeet STT"
             homepage "https://github.com/${REPO_OWNER}/animated-tribble"
 
-            app "Voice Assistant.app"
+            app "Aside.app"
 
             zap trash: [
-              "~/Library/Application Support/com.voice-assistant.app",
-              "~/Library/Caches/com.voice-assistant.app",
-              "~/Library/Preferences/com.voice-assistant.app.plist",
+              "~/Library/Application Support/com.aside.app",
+              "~/Library/Caches/com.aside.app",
+              "~/Library/Preferences/com.aside.app.plist",
             ]
           end
           CASK_EOF
 
           # Remove leading whitespace from heredoc indentation
-          sed -i '' 's/^          //' Casks/voice-assistant.rb
+          sed -i '' 's/^          //' Casks/aside.rb
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Casks/voice-assistant.rb
-          git commit -m "Update voice-assistant to v${VERSION}" || echo "No changes to commit"
+          git add Casks/aside.rb
+          git commit -m "Update aside to v${VERSION}" || echo "No changes to commit"
           git push origin main

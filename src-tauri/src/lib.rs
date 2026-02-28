@@ -62,7 +62,7 @@ fn setup_global_hotkey(app: &AppHandle) {
 fn setup_tray(app: &AppHandle) {
     use tauri::menu::{MenuBuilder, MenuItemBuilder};
 
-    let quit = MenuItemBuilder::with_id("quit", "Quit Voice Assistant").build(app).unwrap();
+    let quit = MenuItemBuilder::with_id("quit", "Quit Aside").build(app).unwrap();
     let menu = MenuBuilder::new(app).item(&quit).build().unwrap();
 
     TrayIconBuilder::new()
@@ -72,7 +72,7 @@ fn setup_tray(app: &AppHandle) {
                 app.exit(0);
             }
         })
-        .tooltip("Voice Assistant")
+        .tooltip("Aside")
         .build(app)
         .expect("failed to build tray icon");
 }

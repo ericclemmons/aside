@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Voice Assistant",
+  "productName": "Aside",
   "version": "0.1.0",
-  "identifier": "com.voice-assistant.app",
+  "identifier": "com.aside.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -19,7 +19,7 @@
     "windows": [
       {
         "label": "overlay",
-        "title": "Voice Assistant",
+        "title": "Aside",
         "width": 420,
         "height": 340,
         "center": true,

@@ -1,4 +1,4 @@
-# Voice Assistant
+# Aside
 
 A macOS push-to-talk voice assistant — like SuperWhisper but open source. Press a global hotkey from any app, speak a command, and dispatch it to a Claude or OpenCode CLI session with full active window context.
 
@@ -46,7 +46,7 @@ On first run, macOS will prompt for:
 
 ```bash
 brew tap ericclemmons/tap
-brew install --cask voice-assistant
+brew install --cask aside
 ```
 
 ## Usage
@@ -122,3 +122,31 @@ CI builds a macOS universal binary DMG, creates a draft GitHub release, and auto
 ## License
 
 MIT
+
+---
+
+## TODO: Code signing and distribution setup
+
+These steps are needed before the first public release. Without code signing, macOS Gatekeeper blocks the app on other machines.
+
+- [ ] **Enroll in the Apple Developer Program** ($99/year) at https://developer.apple.com/programs/ — required for Developer ID certificates
+- [ ] **Create a Developer ID Application certificate** in Xcode (Settings → Accounts → Manage Certificates → +) or via the Apple Developer portal
+- [ ] **Export the certificate as .p12** from Keychain Access (right-click the certificate → Export), then base64 encode: `base64 -i certificate.p12 -o certificate-base64.txt`
+- [ ] **Create an app-specific password** for notarization at https://appleid.apple.com/account/manage (App-Specific Passwords → Generate)
+- [ ] **Find your Team ID** by running `security find-identity -v -p codesigning` — it's the 10-char code in parentheses
+- [ ] **Add GitHub repo secrets** (Settings → Secrets → Actions):
+  - `APPLE_CERTIFICATE` — contents of `certificate-base64.txt`
+  - `APPLE_CERTIFICATE_PASSWORD` — password used when exporting the .p12
+  - `APPLE_SIGNING_IDENTITY` — full string, e.g. `Developer ID Application: Your Name (TEAMID)`
+  - `APPLE_ID` — your Apple ID email
+  - `APPLE_PASSWORD` — the app-specific password from above
+  - `APPLE_TEAM_ID` — your 10-character Team ID
+  - `HOMEBREW_TAP_TOKEN` — a GitHub PAT with `repo` scope (so CI can push to your tap repo)
+- [ ] **Create the Homebrew tap repo**: `./homebrew/setup-tap.sh ericclemmons`
+- [ ] **Test a release**: `./scripts/release.sh 0.1.0 && git push && git push --tags`
+- [ ] **Verify the signed build**: download the DMG, extract, then run `spctl --assess --type execute --verbose "Aside.app"` — should output "accepted"
+
+References:
+- [Tauri v2 code signing docs](https://v2.tauri.app/distribute/sign/macos/)
+- [Apple Developer ID overview](https://developer.apple.com/developer-id/)
+- [tauri-apps/tauri-action](https://github.com/tauri-apps/tauri-action) — handles signing + notarization automatically when secrets are present
