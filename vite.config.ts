@@ -13,7 +13,16 @@ export default defineConfig({
     host: host || false,
     hmr: host ? { protocol: "ws", host, port: 1421 } : undefined,
     watch: {
-      ignored: ["**/src-tauri/**"],
+      // Ignore large/noisy directories to prevent Vite from spinning on 600MB model files
+      ignored: [
+        "**/node_modules/**",
+        "**/src-tauri/**",
+        "**/models/**",
+        "**/.claude/**",
+        "**/.git/**",
+        "**/.husky/**",
+      ],
+      followSymlinks: false,
     },
   },
 });

@@ -1,0 +1,30 @@
+{
+  "default": {
+    "identifier": "default",
+    "description": "Capability for the overlay window",
+    "local": true,
+    "windows": ["overlay"],
+    "permissions": [
+      "core:default",
+      "core:window:allow-show",
+      "core:window:allow-hide",
+      "core:window:allow-set-focus",
+      "core:window:allow-center",
+      "core:window:allow-set-always-on-top",
+      "core:window:allow-set-size",
+      "shell:default",
+      "shell:allow-spawn",
+      "shell:allow-stdin-write",
+      "shell:allow-execute",
+      {
+        "identifier": "shell:allow-execute",
+        "allow": [
+          { "args": true, "cmd": "claude", "name": "claude", "sidecar": false },
+          { "args": true, "cmd": "opencode", "name": "opencode", "sidecar": false },
+          { "args": true, "cmd": "sh", "name": "sh", "sidecar": false }
+        ]
+      },
+      "store:default"
+    ]
+  }
+}

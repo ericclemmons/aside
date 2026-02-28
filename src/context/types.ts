@@ -1,10 +1,4 @@
-export type AppPhase =
-  | "idle"
-  | "recording"
-  | "processing"
-  | "ready";
-
-export type CliProvider = "claude" | "opencode";
+export type AppPhase = "setup" | "idle" | "recording" | "processing" | "ready";
 
 export interface ActiveContext {
   app_name: string;
@@ -19,20 +13,22 @@ export interface Session {
   lastActive: string;
 }
 
+export type SttBackend = "apple" | "parakeet";
+
 export interface AppState {
   phase: AppPhase;
   transcription: string;
   activeContext: ActiveContext | null;
-  /** Which provider tab is active */
-  activeProvider: CliProvider;
-  /** Sessions keyed by provider */
-  sessions: Record<CliProvider, Session[]>;
-  /** Selected session index within active provider (-1 = "New Session") */
+  /** Recent opencode sessions, sorted by last updated */
+  sessions: Session[];
+  /** Selected session index (-1 = "New Session") */
   selectedSessionIndex: number;
   /** Audio amplitude levels for waveform visualization */
   audioLevels: number[];
   /** Error message if something went wrong */
   error: string | null;
+  /** Active STT backend */
+  sttBackend: SttBackend;
 }
 
 export type AppAction =
@@ -41,22 +37,23 @@ export type AppAction =
   | { type: "TRANSCRIPTION_COMPLETE"; text: string }
   | { type: "SET_TRANSCRIPTION"; text: string }
   | { type: "SET_CONTEXT"; context: ActiveContext }
-  | { type: "SET_SESSIONS"; provider: CliProvider; sessions: Session[] }
-  | { type: "SET_PROVIDER"; provider: CliProvider }
+  | { type: "SET_SESSIONS"; sessions: Session[] }
   | { type: "SET_SESSION_INDEX"; index: number }
   | { type: "PUSH_AUDIO_LEVEL"; level: number }
   | { type: "DISPATCH" }
   | { type: "CANCEL" }
   | { type: "SET_ERROR"; error: string }
-  | { type: "CLEAR_ERROR" };
+  | { type: "CLEAR_ERROR" }
+  | { type: "SET_STT_BACKEND"; backend: SttBackend }
+  | { type: "SETUP_COMPLETE" };
 
 export const initialState: AppState = {
-  phase: "idle",
+  phase: "setup",
   transcription: "",
   activeContext: null,
-  activeProvider: "claude",
-  sessions: { claude: [], opencode: [] },
+  sessions: [],
   selectedSessionIndex: -1,
   audioLevels: [],
   error: null,
+  sttBackend: "parakeet",
 };

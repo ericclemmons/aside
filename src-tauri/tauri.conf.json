@@ -4,18 +4,15 @@
   "version": "0.1.0",
   "identifier": "com.aside.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "pnpm vite",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist"
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist",
+    "features": ["parakeet"]
   },
   "app": {
     "macOSPrivateApi": true,
     "withGlobalTauri": true,
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true
-    },
     "windows": [
       {
         "label": "overlay",
@@ -26,10 +23,16 @@
         "resizable": false,
         "transparent": true,
         "decorations": false,
-        "alwaysOnTop": true,
+        "alwaysOnTop": false,
         "skipTaskbar": true,
         "visible": false,
-        "shadow": false
+        "shadow": true,
+        "theme": "Dark",
+        "windowEffects": {
+          "effects": ["hudWindow"],
+          "state": "active",
+          "radius": 16.0
+        }
       }
     ]
   },
@@ -44,11 +47,12 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "entitlements": null,
+      "entitlements": "Entitlements.plist",
+      "hardenedRuntime": true,
+      "signingIdentity": "-",
       "exceptionDomain": "",
       "frameworks": [],
-      "providerShortName": null,
-      "signingIdentity": null
+      "providerShortName": null
     }
   }
 }

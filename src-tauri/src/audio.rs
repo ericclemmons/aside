@@ -10,6 +10,7 @@ fn build_input_stream(
     app: AppHandle,
     buffer: Arc<parking_lot::Mutex<Vec<f32>>>,
     is_recording: Arc<parking_lot::Mutex<bool>>,
+    sample_rate_out: Arc<parking_lot::Mutex<u32>>,
 ) -> Result<Stream, String> {
     let host = cpal::default_host();
     let device = host
@@ -50,6 +51,9 @@ fn build_input_stream(
     let channels = stream_config.channels as usize;
     let actual_rate = stream_config.sample_rate.0;
 
+    // Store actual sample rate for resampling later
+    *sample_rate_out.lock() = actual_rate;
+
     log::info!(
         "Audio config: {}Hz, {} channels",
         actual_rate,
@@ -61,6 +65,7 @@ fn build_input_stream(
     let mut sample_count = 0usize;
     let mut rms_accum = 0.0f64;
     let mut rms_samples = 0usize;
+    let mut emit_count = 0u64;
 
     let stream = device
         .build_input_stream(
@@ -89,6 +94,11 @@ fn build_input_stream(
                             0.0
                         };
                         // Emit amplitude level for waveform visualization
+                        emit_count += 1;
+                        if emit_count % 30 == 0 {
+                            log::info!("audio-level RMS={:.6} (max_sample={:.4})", rms,
+                                data.iter().map(|s| s.abs()).fold(0.0f32, f32::max));
+                        }
                         let _ = app.emit("audio-level", rms);
                         rms_accum = 0.0;
                         rms_samples = 0;
@@ -110,6 +120,12 @@ fn build_input_stream(
 
 #[tauri::command]
 pub fn start_recording(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    // Prevent duplicate starts
+    if *state.is_recording.lock() {
+        log::info!("Already recording, ignoring duplicate start");
+        return Ok(());
+    }
+
     // Clear the buffer
     state.audio_buffer.lock().clear();
     *state.is_recording.lock() = true;
@@ -119,8 +135,9 @@ pub fn start_recording(app: AppHandle, state: State<'_, AppState>) -> Result<(),
         app,
         state.audio_buffer.clone(),
         state.is_recording.clone(),
+        state.audio_sample_rate.clone(),
     )?;
-    *state.audio_stream_handle.lock() = Some(stream);
+    *state.audio_stream_handle.lock() = Some(crate::SendStream(stream));
 
     log::info!("Recording started");
     Ok(())
@@ -128,6 +145,13 @@ pub fn start_recording(app: AppHandle, state: State<'_, AppState>) -> Result<(),
 
 #[tauri::command]
 pub fn stop_recording(state: State<'_, AppState>) -> Result<usize, String> {
+    // Prevent duplicate stops
+    if !*state.is_recording.lock() {
+        let sample_count = state.audio_buffer.lock().len();
+        log::info!("Already stopped, ignoring duplicate stop ({} samples)", sample_count);
+        return Ok(sample_count);
+    }
+
     *state.is_recording.lock() = false;
 
     // Drop the stream to stop capturing

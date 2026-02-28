@@ -1,44 +1,37 @@
 import { Command } from "@tauri-apps/plugin-shell";
-import type { CliProvider, Session } from "../context/types";
+import type { Session } from "../context/types";
 
 interface DispatchOptions {
-  provider: CliProvider;
   prompt: string;
-  /** If null, starts a new session. If provided, continues an existing session. */
+  /** If null, starts a new session. If provided, attaches to existing session. */
   session: Session | null;
 }
 
 /**
- * Dispatch a prompt to Claude or OpenCode CLI.
- * Spawns the process in the background — we don't wait for the response.
+ * Dispatch a prompt to OpenCode via the live server.
+ * Uses `opencode --attach localhost:4096 --session $ID run $PROMPT`
+ * for existing sessions, or just `opencode run $PROMPT` for new ones.
  */
-export async function dispatchPrompt({
-  provider,
-  prompt,
-  session,
-}: DispatchOptions): Promise<void> {
-  const cmd = provider === "claude" ? "claude" : "opencode";
+export async function dispatchPrompt({ prompt, session }: DispatchOptions): Promise<void> {
+  const escaped = prompt.replace(/'/g, "'\\''");
 
-  const args: string[] = [];
+  const shellCmd = session
+    ? `opencode --attach localhost:4096 --session '${session.id.replace(/'/g, "'\\''")}' run '${escaped}'`
+    : `opencode run '${escaped}'`;
 
-  if (session) {
-    // Continue existing session
-    args.push("--continue", "--print", prompt);
-  } else {
-    // New session
-    args.push("--print", prompt);
-  }
-
-  console.log(`Dispatching to ${cmd}:`, args);
+  console.log("Dispatching to opencode:", shellCmd);
 
   try {
-    const command = Command.create(cmd, args);
+    const command = Command.create("sh", ["-c", shellCmd]);
 
-    // Spawn in background — we don't block on the result
+    command.on("error", (err) => {
+      console.error("opencode error:", err);
+    });
+
     const child = await command.spawn();
-    console.log(`${cmd} spawned with PID:`, child.pid);
+    console.log("opencode spawned with PID:", child.pid);
   } catch (e) {
-    console.error(`Failed to spawn ${cmd}:`, e);
-    throw new Error(`Failed to start ${cmd}: ${e}`);
+    console.error("Failed to spawn opencode:", e);
+    throw new Error(`Failed to start opencode: ${e}`);
   }
 }

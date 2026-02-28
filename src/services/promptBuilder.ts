@@ -9,16 +9,11 @@ import type { ActiveContext } from "../context/types";
  *
  *   Fix this bug
  */
-export function buildPrompt(
-  transcription: string,
-  context: ActiveContext | null
-): string {
+export function buildPrompt(transcription: string, context: ActiveContext | null): string {
   const parts: string[] = [];
 
   if (context) {
-    const appInfo = context.url
-      ? `${context.app_name} — ${context.url}`
-      : context.app_name;
+    const appInfo = context.url ? `${context.app_name} — ${context.url}` : context.app_name;
 
     if (appInfo) {
       parts.push(`[Context: ${appInfo}]`);

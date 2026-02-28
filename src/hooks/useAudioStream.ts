@@ -13,6 +13,9 @@ export function useAudioStream() {
     let unlisten: (() => void) | undefined;
 
     listen<number>("audio-level", (event) => {
+      if (event.payload > 0.001) {
+        console.log("[audio-level]", event.payload.toFixed(4));
+      }
       dispatch({ type: "PUSH_AUDIO_LEVEL", level: event.payload });
     }).then((fn) => {
       unlisten = fn;

@@ -1,14 +1,23 @@
+import { useEffect, useRef } from "react";
+
 interface TranscriptionBoxProps {
   text: string;
   onChange: (text: string) => void;
   isProcessing: boolean;
 }
 
-export function TranscriptionBox({
-  text,
-  onChange,
-  isProcessing,
-}: TranscriptionBoxProps) {
+export function TranscriptionBox({ text, onChange, isProcessing }: TranscriptionBoxProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Place cursor at end when text first appears
+  useEffect(() => {
+    if (text && textareaRef.current) {
+      const el = textareaRef.current;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+  }, [text]);
+
   if (isProcessing) {
     return (
       <div className="flex items-center justify-center py-4">
@@ -25,6 +34,7 @@ export function TranscriptionBox({
 
   return (
     <textarea
+      ref={textareaRef}
       value={text}
       onChange={(e) => onChange(e.target.value)}
       className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 resize-none focus:outline-none focus:border-purple-500/50 transition-colors"

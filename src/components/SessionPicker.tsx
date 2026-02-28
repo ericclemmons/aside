@@ -1,42 +1,15 @@
-import type { CliProvider, Session } from "../context/types";
+import type { Session } from "../context/types";
 
 interface SessionPickerProps {
-  activeProvider: CliProvider;
   sessions: Session[];
   selectedIndex: number; // -1 = "New Session"
 }
 
-const providers: { key: CliProvider; label: string }[] = [
-  { key: "claude", label: "Claude" },
-  { key: "opencode", label: "OpenCode" },
-];
-
-export function SessionPicker({
-  activeProvider,
-  sessions,
-  selectedIndex,
-}: SessionPickerProps) {
+export function SessionPicker({ sessions, selectedIndex }: SessionPickerProps) {
   return (
     <div className="flex flex-col gap-2">
-      {/* Provider tabs */}
-      <div className="flex gap-1 bg-white/5 rounded-lg p-0.5">
-        {providers.map((p) => (
-          <button
-            key={p.key}
-            className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${
-              activeProvider === p.key
-                ? "bg-white/15 text-white"
-                : "text-white/40 hover:text-white/60"
-            }`}
-            tabIndex={-1}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-
       <div className="text-[10px] text-white/30 text-center">
-        ← → switch provider · ↑ ↓ select session · Enter send · Esc cancel
+        ↑ ↓ select · ⌘Enter send · Esc cancel
       </div>
 
       {/* Session list */}
@@ -44,27 +17,43 @@ export function SessionPicker({
         {/* New Session option */}
         <SessionRow
           label="New Session"
-          subtitle={`Start a new ${activeProvider} session`}
+          subtitle="Start a new opencode session"
           isSelected={selectedIndex === -1}
         />
 
         {sessions.length === 0 && (
-          <div className="text-xs text-white/20 text-center py-1">
-            No recent sessions
-          </div>
+          <div className="text-xs text-white/20 text-center py-1">No recent sessions</div>
         )}
 
         {sessions.map((session, idx) => (
           <SessionRow
             key={session.id}
             label={session.name}
-            subtitle={session.lastActive}
+            subtitle={formatRelative(session.lastActive)}
             isSelected={selectedIndex === idx}
           />
         ))}
       </div>
     </div>
   );
+}
+
+function formatRelative(dateStr: string): string {
+  if (!dateStr) return "";
+  try {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return "just now";
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDay = Math.floor(diffHr / 24);
+    return `${diffDay}d ago`;
+  } catch {
+    return dateStr;
+  }
 }
 
 function SessionRow({
@@ -84,18 +73,10 @@ function SessionRow({
           : "border border-transparent hover:bg-white/5"
       }`}
     >
-      <span
-        className={`text-xs truncate ${
-          isSelected ? "text-white" : "text-white/50"
-        }`}
-      >
+      <span className={`text-xs truncate ${isSelected ? "text-white" : "text-white/50"}`}>
         {label}
       </span>
-      {subtitle && (
-        <span className="text-[10px] text-white/30 ml-2 shrink-0">
-          {subtitle}
-        </span>
-      )}
+      {subtitle && <span className="text-[10px] text-white/30 ml-2 shrink-0">{subtitle}</span>}
     </div>
   );
 }

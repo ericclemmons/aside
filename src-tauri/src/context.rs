@@ -86,6 +86,21 @@ end tell"#,
     )
 }
 
+/// Check if we have Automation permission for System Events.
+/// Runs a trivial AppleScript; if it fails, the user hasn't granted permission yet.
+#[tauri::command]
+pub fn check_automation() -> bool {
+    run_applescript(r#"tell application "System Events" to return name of first application process whose frontmost is true"#).is_some()
+}
+
+/// Trigger the macOS Automation permission prompt by attempting an AppleScript call.
+/// The OS will show the "wants to control System Events" dialog automatically.
+/// Returns true if permission is already granted.
+#[tauri::command]
+pub fn request_automation() -> bool {
+    run_applescript(r#"tell application "System Events" to return name of first application process whose frontmost is true"#).is_some()
+}
+
 /// Capture the active window context: app name, title, URL (if browser), selected text.
 #[tauri::command]
 pub fn get_active_context() -> ActiveContext {

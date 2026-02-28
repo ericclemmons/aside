@@ -1,13 +1,11 @@
 import { useEffect } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import { useAppState } from "../context/AppContext";
-import type { CliProvider } from "../context/types";
 
 /**
  * Handles keyboard navigation in the overlay when in "ready" phase:
- * - Left/Right: switch between Claude and OpenCode tabs
  * - Up/Down: navigate session list
- * - Enter: dispatch prompt
+ * - Cmd+Enter: dispatch prompt
  * - Escape: cancel
  */
 export function useOverlayKeyboard(onDispatch: () => void) {
@@ -17,22 +15,9 @@ export function useOverlayKeyboard(onDispatch: () => void) {
     if (state.phase !== "ready") return;
 
     function handleKeyDown(e: KeyboardEvent) {
-      const sessions = state.sessions[state.activeProvider];
-      const maxIndex = sessions.length - 1; // -1 = New Session, 0..N = existing
+      const maxIndex = state.sessions.length - 1;
 
       switch (e.key) {
-        case "ArrowLeft":
-        case "ArrowRight": {
-          e.preventDefault();
-          const providers: CliProvider[] = ["claude", "opencode"];
-          const currentIdx = providers.indexOf(state.activeProvider);
-          const nextIdx = e.key === "ArrowRight"
-            ? (currentIdx + 1) % providers.length
-            : (currentIdx - 1 + providers.length) % providers.length;
-          dispatch({ type: "SET_PROVIDER", provider: providers[nextIdx] });
-          break;
-        }
-
         case "ArrowDown": {
           e.preventDefault();
           const next = Math.min(state.selectedSessionIndex + 1, maxIndex);
@@ -48,15 +33,17 @@ export function useOverlayKeyboard(onDispatch: () => void) {
         }
 
         case "Enter": {
-          e.preventDefault();
-          onDispatch();
+          if (e.metaKey) {
+            e.preventDefault();
+            onDispatch();
+          }
           break;
         }
 
         case "Escape": {
           e.preventDefault();
           dispatch({ type: "CANCEL" });
-          getCurrentWindow().hide();
+          invoke("hide_overlay");
           break;
         }
       }
@@ -64,5 +51,5 @@ export function useOverlayKeyboard(onDispatch: () => void) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [state.phase, state.activeProvider, state.selectedSessionIndex, state.sessions, dispatch, onDispatch]);
+  }, [state.phase, state.selectedSessionIndex, state.sessions, dispatch, onDispatch]);
 }

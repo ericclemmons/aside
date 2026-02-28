@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pnpm oxlint --quiet $(echo \"$CLAUDE_FILE_PATHS\" | tr ',' ' ') 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pnpm oxfmt $(echo \"$CLAUDE_FILE_PATHS\" | tr ',' ' ') 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}

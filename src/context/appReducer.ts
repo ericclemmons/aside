@@ -42,17 +42,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case "SET_SESSIONS":
       return {
         ...state,
-        sessions: {
-          ...state.sessions,
-          [action.provider]: action.sessions,
-        },
-      };
-
-    case "SET_PROVIDER":
-      return {
-        ...state,
-        activeProvider: action.provider,
-        selectedSessionIndex: -1,
+        sessions: action.sessions,
       };
 
     case "SET_SESSION_INDEX":
@@ -100,6 +90,18 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         error: null,
+      };
+
+    case "SET_STT_BACKEND":
+      return {
+        ...state,
+        sttBackend: action.backend,
+      };
+
+    case "SETUP_COMPLETE":
+      return {
+        ...state,
+        phase: "idle",
       };
 
     default:

@@ -9,14 +9,35 @@
     "core:window:allow-hide",
     "core:window:allow-set-focus",
     "core:window:allow-center",
-    "global-shortcut:default",
-    "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister",
-    "global-shortcut:allow-is-registered",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-size",
     "shell:default",
     "shell:allow-spawn",
-    "shell:allow-execute",
     "shell:allow-stdin-write",
+    "shell:allow-execute",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "claude",
+          "cmd": "claude",
+          "args": true,
+          "sidecar": false
+        },
+        {
+          "name": "opencode",
+          "cmd": "opencode",
+          "args": true,
+          "sidecar": false
+        },
+        {
+          "name": "sh",
+          "cmd": "sh",
+          "args": true,
+          "sidecar": false
+        }
+      ]
+    },
     "store:default"
   ]
 }
