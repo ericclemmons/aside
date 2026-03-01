@@ -366,12 +366,15 @@ private struct SetupWaveformBanner: View {
         (0.45, 2.50, 1.50, .pi * 0.35, 0.40),
     ]
 
-    // White glow lines — low-to-mid freq for a clean rolling sine wave shape
+    // White glow lines — more lines, varied freq/phase for dense EQ look
     private let strokeLines: [(amp: Double, freq: Double, speed: Double, offset: Double, opacity: Double)] = [
-        (0.88, 2.5, 1.10, .pi * 0.20, 0.75),
-        (0.78, 3.8, 1.70, .pi * 1.10, 0.65),
-        (0.92, 1.7, 0.75, .pi * 1.80, 0.58),
+        (0.88, 2.5, 1.10, .pi * 0.20, 0.72),
+        (0.78, 3.8, 1.70, .pi * 1.10, 0.62),
+        (0.92, 1.7, 0.75, .pi * 1.80, 0.55),
         (0.70, 4.8, 2.20, .pi * 0.90, 0.48),
+        (0.82, 3.1, 1.40, .pi * 0.55, 0.58),
+        (0.75, 5.5, 1.90, .pi * 1.45, 0.44),
+        (0.85, 2.1, 0.95, .pi * 0.75, 0.50),
     ]
 
     // Purple → indigo → teal → pink
@@ -466,7 +469,7 @@ private struct SetupWaveformBanner: View {
         animTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
             Task { @MainActor in
                 phase += 0.038 + smoothedLevel * 0.08
-                breathePhase += 0.25 + lineLevel * 0.40  // 5x faster, really races with voice
+                breathePhase += 0.19 + lineLevel * 0.30  // 25% slower than previous
                 let target = Double(currentAudioLevel)
                 // Fills: smooth swells
                 if target > smoothedLevel {
