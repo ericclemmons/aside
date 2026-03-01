@@ -350,21 +350,22 @@ private struct SetupWaveformBanner: View {
     var liveMode: Bool = false
 
     @State private var phase: Double = 0
-    @State private var smoothedLevel: Double = 0
+    @State private var smoothedLevel: Double = 0  // slow/smooth — drives colour fills
+    @State private var lineLevel: Double = 0       // fast/punchy — drives stroke lines
     @State private var animTimer: Timer?
     // Mirror of audioLevel prop in @State so the timer closure can read live updates.
     // Plain var props on View structs are value-captured at onAppear and never update.
     @State private var currentAudioLevel: Float = 0
 
-    // Filled colour layers — high freq gives dense ridges that look like a voice waveform
+    // Filled colour layers — original smooth low-freq swells for the blurry background
     private let colorLayers: [(amp: Double, freq: Double, speed: Double, offset: Double, opacity: Double)] = [
-        (0.75,  5.0, 0.60, 0.00,       0.42),
-        (0.60,  8.5, 1.00, .pi * 0.65, 0.35),
-        (0.80,  6.5, 0.40, .pi * 1.30, 0.28),
-        (0.50, 11.0, 1.50, .pi * 0.35, 0.35),
+        (0.70, 1.05, 0.60, 0.00,       0.55),
+        (0.55, 1.80, 1.00, .pi * 0.65, 0.45),
+        (0.80, 0.70, 0.40, .pi * 1.30, 0.35),
+        (0.45, 2.50, 1.50, .pi * 0.35, 0.40),
     ]
 
-    // White glow lines — very high freq for tight spiky ridges
+    // White glow lines — high freq ridges driven by the fast lineLevel tracker
     private let strokeLines: [(amp: Double, freq: Double, speed: Double, offset: Double, opacity: Double)] = [
         (0.88, 13.0, 1.10, .pi * 0.20, 0.75),
         (0.78, 18.0, 1.70, .pi * 1.10, 0.65),
@@ -386,11 +387,14 @@ private struct SetupWaveformBanner: View {
             let halfH = midY * 0.88
             let steps = 220
 
-            // liveMode: flat at silence, driven by voice.
-            // idle mode: always-on animation, audio gently boosts amplitude.
+            // Fills: smooth slow level — nice swells
             let ampScale = liveMode
-                ? smoothedLevel                          // 0 = flat, 1 = full
-                : 1.0 + smoothedLevel * 0.6             // always visible, audio adds a little extra
+                ? smoothedLevel
+                : 1.0 + smoothedLevel * 0.6
+            // Lines: fast punchy level — snaps to voice peaks
+            let lineAmpScale = liveMode
+                ? lineLevel
+                : 1.0 + lineLevel * 0.9
 
             // 1. Blurry colour fills
             for layer in colorLayers {
@@ -429,7 +433,7 @@ private struct SetupWaveformBanner: View {
                     let n   = (t - 0.5) * 4.8
                     let env = exp(-n * n * 0.52)
                     let y   = midY - CGFloat(sin(t * .pi * 2 * line.freq + phase * line.speed + line.offset)
-                                             * line.amp * min(env * ampScale, 1.0)) * halfH
+                                             * line.amp * min(env * lineAmpScale, 1.0)) * halfH
                     if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
                     else       { path.addLine(to: CGPoint(x: x, y: y)) }
                 }
@@ -457,13 +461,19 @@ private struct SetupWaveformBanner: View {
     private func startAnimating() {
         animTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
             Task { @MainActor in
-                // Waves scroll faster when audio is louder — feels alive
                 phase += 0.038 + smoothedLevel * 0.08
                 let target = Double(currentAudioLevel)
+                // Fills: gentle smoothing for flowing background swells
                 if target > smoothedLevel {
-                    smoothedLevel = smoothedLevel * 0.15 + target * 0.85  // ~2 frames to peak
+                    smoothedLevel = smoothedLevel * 0.15 + target * 0.85
                 } else {
-                    smoothedLevel = smoothedLevel * 0.80 + target * 0.20  // ~10 frames to decay
+                    smoothedLevel = smoothedLevel * 0.80 + target * 0.20
+                }
+                // Lines: near-instant attack, faster decay — snaps to every voice transient
+                if target > lineLevel {
+                    lineLevel = lineLevel * 0.05 + target * 0.95
+                } else {
+                    lineLevel = lineLevel * 0.65 + target * 0.35
                 }
             }
         }
