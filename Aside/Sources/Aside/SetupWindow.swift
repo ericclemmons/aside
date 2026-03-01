@@ -337,6 +337,9 @@ private class MicLevelMonitor: ObservableObject {
 
 private struct SetupWaveformBanner: View {
     var audioLevel: Float = 0
+    /// false = always-on idle animation (welcome screen)
+    /// true  = flat at silence, driven by mic (mic/speech screens)
+    var liveMode: Bool = false
 
     @State private var phase: Double = 0
     @State private var smoothedLevel: Double = 0
@@ -371,8 +374,11 @@ private struct SetupWaveformBanner: View {
             let halfH = midY * 0.88
             let steps = 220
 
-            // Audio reactivity: smoothedLevel boosts amplitude (1× idle → ~3× at full volume)
-            let ampScale = 1.0 + smoothedLevel * 2.2
+            // liveMode: flat at silence, driven by voice.
+            // idle mode: always-on animation, audio gently boosts amplitude.
+            let ampScale = liveMode
+                ? smoothedLevel                          // 0 = flat, 1 = full
+                : 1.0 + smoothedLevel * 0.6             // always visible, audio adds a little extra
 
             // 1. Blurry colour fills
             for layer in colorLayers {
@@ -439,8 +445,13 @@ private struct SetupWaveformBanner: View {
         animTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
             Task { @MainActor in
                 phase += 0.038
-                // Low-pass smooth toward current audioLevel
-                smoothedLevel = smoothedLevel * 0.72 + Double(audioLevel) * 0.28
+                // Fast attack, slow decay — reacts instantly to voice, fades gracefully
+                let target = Double(audioLevel)
+                if target > smoothedLevel {
+                    smoothedLevel = smoothedLevel * 0.35 + target * 0.65  // ~4 frames to peak
+                } else {
+                    smoothedLevel = smoothedLevel * 0.90 + target * 0.10  // ~20 frames to decay
+                }
             }
         }
     }
@@ -699,7 +710,8 @@ struct SetupView: View {
     private var standardLayout: some View {
         VStack(spacing: 0) {
             if [.welcome, .microphone, .speechRecognition].contains(state.currentStep) {
-                SetupWaveformBanner(audioLevel: micMonitor.audioLevel)
+                let isLive = state.currentStep == .microphone || state.currentStep == .speechRecognition
+                SetupWaveformBanner(audioLevel: micMonitor.audioLevel, liveMode: isLive)
                 Spacer(minLength: 28)
             } else if state.currentStep.usesKeyboardIllustration {
                 Spacer(minLength: 48)
