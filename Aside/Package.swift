@@ -14,8 +14,10 @@ let package = Package(
                 .product(name: "WhisperKit", package: "WhisperKit"),
             ],
             path: "Sources/Aside",
+            exclude: ["Aside.entitlements", "Info.plist"],
             resources: [
                 .process("Assets.xcassets"),
+                .process("Resources"),
             ]
         ),
     ]

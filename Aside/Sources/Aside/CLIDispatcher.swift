@@ -11,17 +11,18 @@ struct CLIDispatcher {
         let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
         let opencodePath = "\(home)/.opencode/bin/opencode"
 
-        var args: [String] = ["--attach", "localhost:4096"]
+        // Build the shell command with proper quoting
+        var cmd = "\(opencodePath) --attach localhost:4096"
         if let sessionID, !sessionID.isEmpty {
-            args += ["--session", sessionID]
+            cmd += " --session \(shellQuote(sessionID))"
         }
-        args += ["run", prompt]
+        cmd += " run \(shellQuote(prompt))"
 
-        print("[Dispatch] opencode \(args.joined(separator: " "))")
+        print("[Dispatch] \(cmd.prefix(200))")
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: opencodePath)
-        process.arguments = args
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", cmd]
 
         // Inherit user's shell environment for PATH
         var env = ProcessInfo.processInfo.environment
@@ -36,5 +37,10 @@ struct CLIDispatcher {
         } catch {
             print("[Dispatch] Failed to spawn opencode: \(error)")
         }
+    }
+
+    /// Single-quote a string for safe shell interpolation.
+    private static func shellQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

@@ -2,45 +2,41 @@ import Foundation
 import Carbon
 import AppKit
 
-/// Monitors the global Right Option (⌥) hotkey via a CGEvent tap.
-/// Supports two modes:
-/// - **Hold to Talk**: Press and hold Right Option → `onKeyDown`; release → `onKeyUp`
-/// - **Toggle**: First press → `onKeyDown`; second press → `onKeyUp`
+/// Monitors the global Right Option (⌥) key via a CGEvent tap.
+///
+/// Fires `onKeyDown` on press, `onKeyUp` on solo release.
+/// If any other key is pressed while Option is held (chord, e.g. Raycast ⌥+Space),
+/// the press is suppressed and `onCancel` fires instead.
 @MainActor
 class HotkeyManager {
     var onKeyDown: (() -> Void)?
     var onKeyUp: (() -> Void)?
-    /// Called when the user presses Escape during a toggle session.
     var onCancel: (() -> Void)?
 
-    /// The current hotkey mode. Can be changed at runtime.
+    // Unused by AppDelegate (it always passes .holdToTalk), kept for SetupState API compat.
     var mode: HotkeyMode = .holdToTalk
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    private var isKeyDown = false
 
-    /// Tracks whether a toggle session is active (only used in toggle mode).
-    private var isToggleActive = false
+    private enum KeyState {
+        case idle           // Right Option is not held
+        case down           // Right Option held solo — recording active
+        case chord          // Another key pressed while Option held — suppress
+    }
+    private var keyState: KeyState = .idle
 
-    // Right Option key code is 61
     private let rightOptionKeyCode: Int64 = 61
 
-    /// `true` if the event tap was successfully created (i.e. Accessibility permission is granted).
     private(set) var isAccessibilityGranted = false
-
-    /// `true` if the event tap is currently active.
     var isRunning: Bool { eventTap != nil }
 
-    /// Reset toggle state when a session is cancelled externally (e.g. click-outside).
     func resetToggle() {
-        isToggleActive = false
-        isKeyDown = false
+        keyState = .idle
     }
 
-    /// Returns `true` if the app currently has Accessibility permission.
     static func checkAccessibilityPermission() -> Bool {
-        return AXIsProcessTrustedWithOptions(
+        AXIsProcessTrustedWithOptions(
             [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false] as CFDictionary
         )
     }
@@ -78,64 +74,54 @@ class HotkeyManager {
     }
 
     func stop() {
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-        }
-        if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-        }
+        if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: false) }
+        if let src = runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes) }
         eventTap = nil
         runLoopSource = nil
     }
 
     private func handleEvent(type: CGEventType, event: CGEvent) {
-        // Escape (keycode 53) cancels any active recording
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+
         if type == .keyDown {
-            let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-            if keyCode == 53 {
-                isToggleActive = false
-                isKeyDown = false
-                Task { @MainActor in self.onCancel?() }
+            switch keyState {
+            case .idle:
+                break  // Option not held, not our event
+            case .down:
+                if keyCode == 53 {
+                    // Escape: cancel recording
+                    keyState = .idle
+                    Task { @MainActor in self.onCancel?() }
+                } else {
+                    // Chord (e.g. ⌥+Space for Raycast): suppress and cancel
+                    keyState = .chord
+                    Task { @MainActor in self.onCancel?() }
+                }
+            case .chord:
+                break  // Already suppressed
             }
             return
         }
 
-        guard type == .flagsChanged else { return }
+        guard type == .flagsChanged, keyCode == rightOptionKeyCode else { return }
 
-        // Check if this is the Right Option key specifically (keycode 61)
-        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        guard keyCode == rightOptionKeyCode else { return }
+        let optionIsDown = event.flags.contains(.maskAlternate)
 
-        let flags = event.flags
-        let optionIsDown = flags.contains(.maskAlternate)
+        switch keyState {
+        case .idle where optionIsDown:
+            keyState = .down
+            Task { @MainActor in self.onKeyDown?() }
 
-        switch mode {
-        case .holdToTalk:
-            if optionIsDown && !isKeyDown {
-                isKeyDown = true
-                Task { @MainActor in self.onKeyDown?() }
-            } else if !optionIsDown && isKeyDown {
-                isKeyDown = false
-                Task { @MainActor in self.onKeyUp?() }
-            }
+        case .down where !optionIsDown:
+            keyState = .idle
+            Task { @MainActor in self.onKeyUp?() }
 
-        case .toggle:
-            // Detect the rising edge: key was not pressed, now it is
-            if optionIsDown && !isKeyDown {
-                isKeyDown = true
-                if !isToggleActive {
-                    // First press: start recording
-                    isToggleActive = true
-                    Task { @MainActor in self.onKeyDown?() }
-                } else {
-                    // Second press: stop recording
-                    isToggleActive = false
-                    Task { @MainActor in self.onKeyUp?() }
-                }
-            } else if !optionIsDown && isKeyDown {
-                // Key released — just reset the edge detector, don't fire callbacks
-                isKeyDown = false
-            }
+        case .chord where !optionIsDown:
+            // Suppressed press released — back to idle, no callback
+            keyState = .idle
+
+        default:
+            break
         }
     }
 }

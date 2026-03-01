@@ -3,8 +3,8 @@ import Foundation
 /// Builds a prompt string from the user's transcription and captured context.
 ///
 /// Example output:
-///   [Context: Chrome — https://github.com/org/repo/issues/42]
-///   [Selected: "TypeError: Cannot read property 'map' of undefined"]
+///   > Selected text here
+///   > - https://example.com/the/page/im/on
 ///
 ///   Fix this bug
 struct PromptBuilder {
@@ -13,23 +13,20 @@ struct PromptBuilder {
         var parts: [String] = []
 
         if let context {
-            let appInfo: String
-            if let url = context.url, !url.isEmpty {
-                appInfo = "\(context.appName) — \(url)"
-            } else {
-                appInfo = context.appName
-            }
-
-            if !appInfo.isEmpty {
-                parts.append("[Context: \(appInfo)]")
-            }
-
+            // Selected text as blockquote
             if let selectedText = context.selectedText, !selectedText.isEmpty {
-                // Truncate very long selections
                 let selected = selectedText.count > 500
                     ? String(selectedText.prefix(500)) + "..."
                     : selectedText
-                parts.append("[Selected: \"\(selected)\"]")
+                let quoted = selected.components(separatedBy: CharacterSet.newlines)
+                    .map { "> \($0)" }
+                    .joined(separator: "\n")
+                parts.append(quoted)
+            }
+
+            // URL as blockquoted reference
+            if let url = context.url, !url.isEmpty {
+                parts.append("> - \(url)")
             }
         }
 

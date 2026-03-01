@@ -101,9 +101,10 @@ struct WaveformView: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.55, blendDuration: 0.1), value: isCompact)
         .animation(.spring(response: 0.4, dampingFraction: 0.55, blendDuration: 0.1), value: hasText)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .scaleEffect(appeared ? 1.0 : 0.5, anchor: .top)
+        .offset(y: appeared ? 0 : -20)
+        .scaleEffect(appeared ? 1.0 : 0.8, anchor: .top)
         .opacity(appeared ? 1.0 : 0.0)
-        .animation(.spring(response: 0.35, dampingFraction: 0.5, blendDuration: 0.1), value: appeared)
+        .animation(.spring(response: 0.4, dampingFraction: 0.65), value: appeared)
         .onAppear {
             startAnimating()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {

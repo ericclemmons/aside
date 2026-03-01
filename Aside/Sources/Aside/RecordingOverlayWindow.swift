@@ -13,7 +13,7 @@ struct DispatchDestination: Identifiable, Equatable {
     let sessionID: String?
 
     static func newOpenCode() -> DispatchDestination {
-        DispatchDestination(id: "opencode-new", label: "OpenCode", detail: "New session", time: nil, sessionID: nil)
+        DispatchDestination(id: "opencode-new", label: "New OpenCode Session", detail: nil, time: nil, sessionID: nil)
     }
 
     static func openCodeSession(_ session: Session) -> DispatchDestination {
@@ -21,18 +21,25 @@ struct DispatchDestination: Identifiable, Equatable {
     }
 }
 
+// MARK: - Overlay Mode
+
+enum OverlayMode: Equatable {
+    case hidden
+    case waveform
+    case picker
+}
+
 // MARK: - Overlay State
 
 /// Observable state that drives the overlay UI.
 @MainActor
 class OverlayState: ObservableObject {
+    @Published var mode: OverlayMode = .hidden
     @Published var isRecording = false
     @Published var audioLevel: Float = 0.0
     @Published var transcribedText = ""
     @Published var isEnhancing = false
 
-    /// When true, shows the dispatch picker instead of the waveform.
-    @Published var isPickingDestination = false
     @Published var destinations: [DispatchDestination] = []
     @Published var selectedIndex: Int = 0
     /// Editable prompt text shown in the dispatch picker.
@@ -61,12 +68,16 @@ class OverlayState: ObservableObject {
         transcriber.$isEnhancing.assign(to: &$isEnhancing)
     }
 
+    func startWaveform() {
+        mode = .waveform
+    }
+
     func showPicker(destinations: [DispatchDestination], prompt: String, onPicked: @escaping (DispatchDestination, String) -> Void) {
         self.destinations = destinations
         self.selectedIndex = 0
         self.editablePrompt = prompt
         self.onDestinationPicked = onPicked
-        self.isPickingDestination = true
+        self.mode = .picker
     }
 
     func moveSelection(by delta: Int) {
@@ -80,11 +91,11 @@ class OverlayState: ObservableObject {
     }
 
     func reset() {
+        mode = .hidden
         isRecording = false
         audioLevel = 0
         transcribedText = ""
         isEnhancing = false
-        isPickingDestination = false
         destinations = []
         selectedIndex = 0
         editablePrompt = ""
@@ -101,8 +112,8 @@ class RecordingOverlayWindow: NSPanel {
 
     private var hostingView: NSHostingView<OverlayContent>?
     private var keyMonitor: Any?
-    /// Incremented on show, checked on hide completion to avoid stale orderOut.
-    private var showGeneration: UInt64 = 0
+    private var clickOutsideMonitor: Any?
+    private var modeSink: AnyCancellable?
 
     init() {
         super.init(
@@ -125,35 +136,62 @@ class RecordingOverlayWindow: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    func show(state: OverlayState) {
-        showGeneration &+= 1
-
+    /// Subscribe to state.mode and drive panel visibility reactively. Call once at launch.
+    func observe(state: OverlayState) {
+        // Create hosting view once
         let content = OverlayContent(state: state)
         let hosting = NSHostingView(rootView: content)
         hosting.translatesAutoresizingMaskIntoConstraints = false
         contentView = hosting
         hostingView = hosting
 
-        let size = CGSize(width: 360, height: 460)
-        if let screen = NSScreen.main {
-            let x = screen.visibleFrame.midX - size.width / 2
-            let y = screen.visibleFrame.minY + 30
-            setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: false)
-        }
+        // No receive(on:) — @MainActor OverlayState already publishes on main thread.
+        // Synchronous delivery avoids races where monitor isn't installed yet.
+        modeSink = state.$mode
+            .sink { [weak self, weak state] mode in
+                guard let self else { return }
+                switch mode {
+                case .hidden:
+                    self.removeMonitors()
+                    self.ignoresMouseEvents = true
+                    self.orderOut(nil)
 
-        ignoresMouseEvents = true
-        alphaValue = 1
-        orderFront(nil)
+                case .waveform:
+                    self.removeMonitors()
+                    self.positionAtTop()
+                    self.ignoresMouseEvents = true
+                    self.alphaValue = 1
+                    self.orderFront(nil)
+
+                case .picker:
+                    guard let state else { return }
+                    self.positionAtTop()
+                    self.ignoresMouseEvents = false
+                    self.alphaValue = 1
+                    NSApp.activate(ignoringOtherApps: true)
+                    self.makeKeyAndOrderFront(nil)
+                    self.installKeyMonitor(state: state)
+                    self.installClickOutsideMonitor(state: state)
+                }
+            }
     }
 
-    /// Enable keyboard interaction for the dispatch picker.
-    /// The panel becomes key-accepting so the TextEditor can receive input.
-    func enableKeyboardNavigation(state: OverlayState) {
-        ignoresMouseEvents = false
-        // Activate the app so this panel can become key and receive keyboard input
-        NSApp.activate(ignoringOtherApps: true)
-        makeKeyAndOrderFront(nil)
+    /// Recalculate position: top-center of the screen containing the mouse cursor.
+    private func positionAtTop() {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? NSScreen.screens[0]
+        let size = CGSize(width: 360, height: 460)
+        let x = screen.visibleFrame.midX - size.width / 2
+        let y = screen.visibleFrame.maxY - size.height
+        setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: false)
+    }
 
+    // MARK: - Monitors
+
+    private func installKeyMonitor(state: OverlayState) {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak state] event in
             guard let state else { return event }
 
@@ -185,22 +223,30 @@ class RecordingOverlayWindow: NSPanel {
         }
     }
 
-    func hide(completion: (() -> Void)? = nil) {
+    private func installClickOutsideMonitor(state: OverlayState) {
+        if let monitor = clickOutsideMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self, weak state] _ in
+            guard let self, let state else { return }
+            let mouse = NSEvent.mouseLocation
+            if !self.frame.contains(mouse) {
+                Task { @MainActor in
+                    state.onDestinationPicked?(DispatchDestination(id: "cancel", label: "", detail: nil, time: nil, sessionID: nil), "")
+                }
+            }
+        }
+    }
+
+    private func removeMonitors() {
         if let monitor = keyMonitor {
             NSEvent.removeMonitor(monitor)
             keyMonitor = nil
         }
-        ignoresMouseEvents = true
-
-        let gen = showGeneration
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.3
-            animator().alphaValue = 0
-        }, completionHandler: { [weak self] in
-            guard let self, self.showGeneration == gen else { return }
-            self.orderOut(nil)
-            completion?()
-        })
+        if let monitor = clickOutsideMonitor {
+            NSEvent.removeMonitor(monitor)
+            clickOutsideMonitor = nil
+        }
     }
 }
 
@@ -211,21 +257,24 @@ private struct OverlayContent: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if state.isPickingDestination {
-                DispatchPickerView(state: state)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            } else {
+            switch state.mode {
+            case .hidden:
+                EmptyView()
+            case .waveform:
                 WaveformView(
                     audioLevel: state.audioLevel,
                     isRecording: state.isRecording,
                     transcribedText: state.transcribedText,
                     isEnhancing: state.isEnhancing
                 )
+            case .picker:
+                DispatchPickerView(state: state)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.top, 8)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: state.isPickingDestination)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: state.mode)
     }
 }
 
@@ -248,6 +297,13 @@ private struct DispatchPickerView: View {
                         .fill(.white.opacity(0.08))
                 )
                 .frame(minHeight: 50, maxHeight: 100)
+                .mask(
+                    VStack(spacing: 0) {
+                        Color.black
+                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 16)
+                    }
+                )
                 .padding(.horizontal, 10)
                 .padding(.top, 10)
 
@@ -309,39 +365,25 @@ private struct DestinationRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "terminal")
-                .font(.system(size: 11))
-                .foregroundStyle(isSelected ? .white : .white.opacity(0.5))
-                .frame(width: 16)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(destination.label)
-                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? .white : .white.opacity(0.8))
-                    .lineLimit(1)
-
-                if let detail = destination.detail {
-                    Text(detail)
-                        .font(.system(size: 9))
-                        .foregroundStyle(isSelected ? .white.opacity(0.6) : .white.opacity(0.35))
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer()
-
             if let time = destination.time {
                 Text(time)
                     .font(.system(size: 10))
                     .foregroundStyle(isSelected ? .white.opacity(0.5) : .white.opacity(0.3))
                     .monospacedDigit()
+                    .frame(width: 52, alignment: .leading)
             }
 
-            if isSelected {
-                Image(systemName: "return")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.5))
-            }
+            Image(systemName: "chevron.left.forwardslash.chevron.right")
+                .font(.system(size: 11))
+                .foregroundStyle(isSelected ? .white : .white.opacity(0.5))
+                .frame(width: 16)
+
+            Text(destination.label)
+                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? .white : .white.opacity(0.8))
+                .lineLimit(1)
+
+            Spacer()
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

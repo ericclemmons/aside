@@ -33,7 +33,7 @@ enum HotkeyMode: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .holdToTalk: return "Hold to Type"
-        case .toggle: return "Tap to Dispatch"
+        case .toggle: return "Tap to Agent"
         }
     }
 
@@ -170,6 +170,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             enhancer = TextEnhancer()
         }
 
+        startOpenCodeServer()
+        overlayWindow.observe(state: overlayState)
         setupMenuBar()
 
         // Show setup window to walk through permissions
@@ -195,13 +197,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem?.button {
-            // Use SF Symbol directly as NSImage
             let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-            if let img = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: "Aside") {
+            #if DEBUG
+            let symbolName = "waveform.circle"   // outline = dev build
+            #else
+            let symbolName = "waveform.circle.fill"
+            #endif
+            if let img = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Aside") {
                 button.image = img.withSymbolConfiguration(config)
                 button.image?.isTemplate = true
             } else {
-                // Fallback: text-based
                 button.title = "◉"
             }
         }
@@ -306,6 +311,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Hold-to-type: stop and deliver
             phase = .finishingHoldToType
             stopTranscriber()
+        } else if setupController?.state?.currentStep == .tryHoldToType {
+            // During the hold-to-type setup step, a quick tap with no speech is a mistake.
+            // Cancel cleanly so the user can try again — don't enter persistent mode.
+            cancelRecording()
         } else {
             // No text yet — enter persistent mode (keep recording)
             phase = .persistent
@@ -349,7 +358,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.processTranscription(text)
             }
             overlayState.bind(to: whisper)
-            overlayWindow.show(state: overlayState)
+            overlayState.startWaveform()
             whisper.startRecording()
         } else {
             speechTranscriber.customWords = words
@@ -358,7 +367,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.processTranscription(text)
             }
             overlayState.bind(to: speechTranscriber)
-            overlayWindow.show(state: overlayState)
+            overlayState.startWaveform()
             speechTranscriber.startRecording()
         }
     }
@@ -460,6 +469,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let context = capturedContext
         let prompt = PromptBuilder.buildPrompt(transcription: text, context: context)
 
+        // Dismiss setup onboarding as soon as the picker appears —
+        // the user completed the tap-to-agent flow with the 2nd tap.
+        if setupController?.state?.currentStep == .tryTapToDispatch {
+            setupController?.state?.markDispatchTested()
+        }
+
         // Build destination list
         var destinations: [DispatchDestination] = [
             .newOpenCode(),
@@ -484,7 +499,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.finishSession()
         }
 
-        overlayWindow.enableKeyboardNavigation(state: overlayState)
     }
 
     // MARK: - Cancel recording (Escape during toggle)
@@ -513,11 +527,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             clickMonitor = nil
         }
         phase = .idle
-        overlayWindow.hide()
         overlayState.reset()
         capturedContext = nil
         setupController?.state?.markDispatchTested()
         print("[Recording] finishSession done")
+    }
+
+    // MARK: - OpenCode server
+
+    private func startOpenCodeServer() {
+        let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
+        let opencodePath = "\(home)/.opencode/bin/opencode"
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: opencodePath)
+        process.arguments = ["serve", "--port", "4096"]
+        process.currentDirectoryURL = URL(fileURLWithPath: home)
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        // Inherit PATH so opencode can find its dependencies
+        var env = ProcessInfo.processInfo.environment
+        if let path = env["PATH"] {
+            env["PATH"] = "\(home)/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:\(path)"
+        }
+        process.environment = env
+
+        do {
+            try process.run()
+            print("[OpenCode] serve started PID: \(process.processIdentifier)")
+        } catch {
+            print("[OpenCode] serve failed (may already be running): \(error)")
+        }
     }
 
     // MARK: - Permissions

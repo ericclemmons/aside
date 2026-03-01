@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import AVFoundation
 import Speech
+import Combine
 
 // MARK: - Setup Step
 
@@ -11,8 +12,8 @@ enum SetupStep: Int, CaseIterable {
     case speechRecognition
     case accessibility
     case tryHoldToType
+    case openCodeSetup
     case tryTapToDispatch
-    case done
 
     var title: String {
         switch self {
@@ -20,9 +21,9 @@ enum SetupStep: Int, CaseIterable {
         case .microphone: return "Record Your Voice"
         case .speechRecognition: return "Local Transcription"
         case .accessibility: return "Push-to-Talk Hotkey"
-        case .tryHoldToType: return "Try Hold-to-Type"
-        case .tryTapToDispatch: return "Try Tap-to-Dispatch"
-        case .done: return "You're All Set!"
+        case .tryHoldToType: return "Hold-to-Type"
+        case .openCodeSetup: return "Setup OpenCode"
+        case .tryTapToDispatch: return "Tap-to-Agent"
         }
     }
 
@@ -38,10 +39,10 @@ enum SetupStep: Int, CaseIterable {
             return "Aside uses the Right Option key as a system-wide hotkey. macOS requires Accessibility access to detect keystrokes outside the app."
         case .tryHoldToType:
             return "Hold Right ⌥ and say something. When you release, your words will be typed into the text field below."
+        case .openCodeSetup:
+            return "Open OpenCode Desktop, click Status in the top-right, and add the server shown below."
         case .tryTapToDispatch:
-            return "Tap Right ⌥ to start recording, speak, then tap again. You'll see a picker to choose where to send your prompt. Press Esc to cancel."
-        case .done:
-            return "Look for the waveform icon in your menu bar.\n\nHold Right ⌥ → dictate into any text field\nTap Right ⌥ → voice prompt to Claude or OpenCode"
+            return "" // Uses custom numbered steps view
         }
     }
 
@@ -51,9 +52,16 @@ enum SetupStep: Int, CaseIterable {
         case .microphone: return "mic.fill"
         case .speechRecognition: return "text.bubble.fill"
         case .accessibility: return "keyboard.fill"
-        case .tryHoldToType: return "hand.point.up.fill"
-        case .tryTapToDispatch: return "paperplane.fill"
-        case .done: return "checkmark.circle.fill"
+        case .tryHoldToType: return "" // Uses custom keyboard view
+        case .openCodeSetup: return "server.rack"
+        case .tryTapToDispatch: return "" // Uses custom keyboard view
+        }
+    }
+
+    var usesKeyboardIllustration: Bool {
+        switch self {
+        case .tryHoldToType, .tryTapToDispatch: return true
+        default: return false
         }
     }
 
@@ -63,9 +71,9 @@ enum SetupStep: Int, CaseIterable {
         case .microphone: return "Allow Microphone"
         case .speechRecognition: return "Allow Transcription"
         case .accessibility: return "Open Accessibility Settings"
-        case .tryHoldToType: return "Continue"
-        case .tryTapToDispatch: return "Continue"
-        case .done: return "Start Using Aside"
+        case .tryHoldToType: return "Hold Right ⌥"
+        case .openCodeSetup: return "Open OpenCode Desktop"
+        case .tryTapToDispatch: return "Tap Right ⌥"
         }
     }
 
@@ -82,6 +90,7 @@ enum SetupStep: Int, CaseIterable {
         default: return false
         }
     }
+
 }
 
 // MARK: - Setup State
@@ -94,7 +103,9 @@ class SetupState: ObservableObject {
     @Published var accessibilityGranted = false
     @Published var tryInput: String = ""
     @Published var tryDispatchTested: Bool = false
+    @Published var openCodeOpened: Bool = false
 
+    @Published var contentHeight: CGFloat = 0
     var onComplete: (() -> Void)?
     /// Called when setup needs the hotkey to be active for "try" steps.
     /// Parameter is the mode to use for the step.
@@ -103,6 +114,10 @@ class SetupState: ObservableObject {
     /// Call when a tap-to-dispatch cycle completes (or is cancelled) during setup.
     func markDispatchTested() {
         tryDispatchTested = true
+        // Auto-close setup when the user completes a dispatch on the final step
+        if currentStep == .tryTapToDispatch {
+            onComplete?()
+        }
     }
 
     func checkPermissions() {
@@ -132,7 +147,12 @@ class SetupState: ObservableObject {
     func advance() {
         guard let currentIndex = SetupStep.allCases.firstIndex(of: currentStep) else { return }
         let nextIndex = SetupStep.allCases.index(after: currentIndex)
-        guard nextIndex < SetupStep.allCases.endIndex else { return }
+
+        // Past the last step — setup complete
+        guard nextIndex < SetupStep.allCases.endIndex else {
+            onComplete?()
+            return
+        }
 
         let next = SetupStep.allCases[nextIndex]
 
@@ -207,10 +227,24 @@ class SetupState: ObservableObject {
             } else {
                 startPermissionPolling()
             }
-        case .tryHoldToType, .tryTapToDispatch:
+        case .tryHoldToType:
             // "Skip" button
             advance()
-        case .done:
+        case .openCodeSetup:
+            if openCodeOpened {
+                advance()
+            } else {
+                // Try to open the OpenCode Desktop app
+                let opened = NSWorkspace.shared.open(URL(string: "opencode://")!)
+                    || NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/OpenCode.app"))
+                if !opened {
+                    // Fallback: open the web download page
+                    NSWorkspace.shared.open(URL(string: "https://opencode.ai")!)
+                }
+                openCodeOpened = true
+            }
+        case .tryTapToDispatch:
+            // Final step — close setup and start using
             onComplete?()
         }
     }
@@ -258,65 +292,411 @@ extension Collection {
     }
 }
 
+// MARK: - Preference key for content height
+
+private struct HeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+// MARK: - Waveform banner (welcome step)
+
+private struct SetupWaveformBanner: View {
+    @State private var phase: Double = 0
+    @State private var animTimer: Timer?
+
+    // Filled colour layers — amplitude fraction, frequency, phase speed, initial offset, opacity
+    private let colorLayers: [(amp: Double, freq: Double, speed: Double, offset: Double, opacity: Double)] = [
+        (0.70, 1.05, 0.60, 0.00,       0.55),
+        (0.55, 1.80, 1.00, .pi * 0.65, 0.45),
+        (0.80, 0.70, 0.40, .pi * 1.30, 0.35),
+        (0.45, 2.50, 1.50, .pi * 0.35, 0.40),
+    ]
+
+    // White glow lines — amplitude fraction, frequency, phase speed, initial offset, base opacity
+    private let strokeLines: [(amp: Double, freq: Double, speed: Double, offset: Double, opacity: Double)] = [
+        (0.60, 1.40, 0.85, .pi * 0.20, 0.7),
+        (0.50, 2.10, 1.25, .pi * 1.10, 0.6),
+        (0.75, 0.90, 0.55, .pi * 1.80, 0.5),
+    ]
+
+    // Purple → indigo → teal → pink
+    private let gradient = Gradient(stops: [
+        .init(color: Color(red: 0.55, green: 0.10, blue: 1.00), location: 0.00),
+        .init(color: Color(red: 0.20, green: 0.35, blue: 1.00), location: 0.33),
+        .init(color: Color(red: 0.00, green: 0.75, blue: 0.90), location: 0.66),
+        .init(color: Color(red: 0.85, green: 0.15, blue: 0.85), location: 1.00),
+    ])
+
+    var body: some View {
+        Canvas { context, size in
+            let midY  = size.height / 2
+            let halfH = midY * 0.88
+            let steps = 220
+
+            // 1. Blurry colour fills
+            for layer in colorLayers {
+                var top = [CGPoint](), bot = [CGPoint]()
+                for i in 0...steps {
+                    let t   = Double(i) / Double(steps)
+                    let x   = CGFloat(t) * size.width
+                    let n   = (t - 0.5) * 4.8
+                    let env = exp(-n * n * 0.52)
+                    let dy  = CGFloat(sin(t * .pi * 2 * layer.freq + phase * layer.speed + layer.offset)
+                                      * layer.amp * env) * halfH
+                    top.append(CGPoint(x: x, y: midY - dy))
+                    bot.append(CGPoint(x: x, y: midY + dy))
+                }
+                var path = Path()
+                path.move(to: top[0])
+                top.dropFirst().forEach { path.addLine(to: $0) }
+                bot.reversed().forEach  { path.addLine(to: $0) }
+                path.closeSubpath()
+                var ctx = context
+                ctx.opacity = layer.opacity
+                ctx.addFilter(.blur(radius: 3))
+                ctx.fill(path, with: .linearGradient(
+                    gradient,
+                    startPoint: CGPoint(x: 0,          y: midY),
+                    endPoint:   CGPoint(x: size.width, y: midY)
+                ))
+            }
+
+            // 2. Glowing white lines — three passes per line: outer halo, mid-glow, bright core
+            for line in strokeLines {
+                var path = Path()
+                for i in 0...steps {
+                    let t   = Double(i) / Double(steps)
+                    let x   = CGFloat(t) * size.width
+                    let n   = (t - 0.5) * 4.8
+                    let env = exp(-n * n * 0.52)
+                    let y   = midY - CGFloat(sin(t * .pi * 2 * line.freq + phase * line.speed + line.offset)
+                                             * line.amp * env) * halfH
+                    if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
+                    else       { path.addLine(to: CGPoint(x: x, y: y)) }
+                }
+                // Outer halo — wide, very blurry, soft
+                var halo = context; halo.opacity = line.opacity * 0.25
+                halo.addFilter(.blur(radius: 10))
+                halo.stroke(path, with: .color(.white), style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                // Mid glow
+                var mid = context; mid.opacity = line.opacity * 0.45
+                mid.addFilter(.blur(radius: 4))
+                mid.stroke(path, with: .color(.white), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                // Bright core — thin, minimal blur
+                var core = context; core.opacity = line.opacity * 0.6
+                core.addFilter(.blur(radius: 0.5))
+                core.stroke(path, with: .color(.white), style: StrokeStyle(lineWidth: 1, lineCap: .round))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 96)
+        .onAppear { startAnimating() }
+        .onDisappear { stopAnimating() }
+    }
+
+    private func startAnimating() {
+        animTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
+            Task { @MainActor in phase += 0.038 }
+        }
+    }
+
+    private func stopAnimating() { animTimer?.invalidate(); animTimer = nil }
+}
+
 // MARK: - Setup View
+
+private enum OpenCodeTab: String, CaseIterable {
+    case desktop = "Desktop"
+    case web     = "Web"
+    case cli     = "CLI"
+}
 
 struct SetupView: View {
     @ObservedObject var state: SetupState
     @FocusState private var tryInputFocused: Bool
+    @State private var openCodeTab: OpenCodeTab = .desktop
+    @State private var copiedKey: String? = nil
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Progress dots
-            HStack(spacing: 6) {
-                ForEach(SetupStep.allCases, id: \.rawValue) { step in
-                    Circle()
-                        .fill(step.rawValue <= state.currentStep.rawValue ? Color.accentColor : Color.secondary.opacity(0.3))
-                        .frame(width: 6, height: 6)
-                }
+        Group {
+            if state.currentStep == .openCodeSetup {
+                openCodeCard
+            } else {
+                standardLayout
             }
-            .padding(.top, 20)
+        }
+        .frame(width: 420)
+        .background(GeometryReader { geo in
+            Color.clear.preference(key: HeightPreferenceKey.self, value: geo.size.height)
+        })
+        .onPreferenceChange(HeightPreferenceKey.self) { h in
+            if h > 0 { state.contentHeight = h }
+        }
+        .animation(.easeInOut(duration: 0.3), value: state.currentStep)
+    }
 
-            Spacer()
+    // MARK: - OpenCode card layout (tabbed: Desktop / Web / CLI)
 
-            // Icon
-            Image(systemName: state.currentStep.icon)
-                .font(.system(size: 48))
-                .foregroundStyle(iconColor)
-                .frame(height: 60)
-                .padding(.bottom, 16)
-
-            // Title
+    private var openCodeCard: some View {
+        VStack(spacing: 0) {
+            // Title — same style as other step titles
             Text(state.currentStep.title)
                 .font(.system(size: 20, weight: .semibold))
-                .padding(.bottom, 8)
+                .padding(.top, 32)
+                .padding(.bottom, 12)
 
-            // Explanation
-            Text(state.currentStep.explanation)
+            // Tab picker
+            Picker("", selection: $openCodeTab) {
+                ForEach(OpenCodeTab.allCases, id: \.self) { tab in
+                    Text(tab.rawValue).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 20)
+
+            // Tab content — direct switch so @ViewBuilder images get proper width proposals
+            switch openCodeTab {
+            case .desktop: desktopTabContent
+            case .web:     webTabContent
+            case .cli:     cliTabContent
+            }
+
+            openCodeCTAButton
+                .padding(.top, 16)
+
+            progressDots
+                .padding(.top, 16)
+                .padding(.bottom, 24)
+        }
+    }
+
+    @ViewBuilder
+    private var desktopTabContent: some View {
+        // Steps 1 + 2
+        VStack(alignment: .leading, spacing: 8) {
+            openButtonStepRow(number: 1, label: "OpenCode Desktop") {
+                let _ = NSWorkspace.shared.open(URL(string: "opencode://")!)
+                    || NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/OpenCode.app"))
+                state.openCodeOpened = true
+            }
+            stepRow(number: 2, text: "Click Status in the top-right")
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+
+        // Full-bleed screenshot under step 2
+        fullBleedImage("opencode-status")
+
+        // Step 3 — clipboard icon only
+        VStack(alignment: .leading, spacing: 8) {
+            addServerStepRow(number: 3, key: "serverURL", showExternalLink: false)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+
+        // Full-bleed result screenshot
+        fullBleedImage("opencode-servers")
+    }
+
+    @ViewBuilder
+    private var webTabContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            openButtonStepRow(number: 1, label: "http://localhost:4096") {
+                NSWorkspace.shared.open(URL(string: "http://localhost:4096")!)
+            }
+            stepRow(number: 2, text: "Click Status in the top-right")
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+
+        fullBleedImage("opencode-status")
+
+        VStack(alignment: .leading, spacing: 8) {
+            addServerStepRow(number: 3, key: "serverURLWeb", showExternalLink: false)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+
+        fullBleedImage("opencode-servers")
+    }
+
+    @ViewBuilder
+    private var cliTabContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("To share sessions with Aside, launch OpenCode with:")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 340)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, state.currentStep.isTryStep ? 12 : 24)
+            HStack(spacing: 0) {
+                Text("opencode --attach localhost:4096")
+                    .font(.system(size: 12, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                clipboardButton("opencode --attach localhost:4096", key: "cliCmd", size: 12)
+            }
+            .padding(10)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+    }
 
-            // Try-it input field for hold-to-type step
+    // MARK: - OpenCode helpers
+
+    /// Full-bleed image — GeometryReader guarantees 100% container width.
+    /// Shadow trimming (trimTransparentBorder) ensures content starts at pixel 0.
+    @ViewBuilder
+    private func fullBleedImage(_ name: String) -> some View {
+        if let img = loadResourceImage(name) {
+            Image(nsImage: img)
+                .resizable()
+                .aspectRatio(img.size.width / max(img.size.height, 1), contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
+        }
+    }
+
+    /// "Open [label ↗]" step row — label is a tappable link with external icon.
+    private func openButtonStepRow(number: Int, label: String, action: @escaping () -> Void) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            numberBadge(number)
+            HStack(spacing: 4) {
+                Text("Open").foregroundStyle(.secondary)
+                Button(action: action) {
+                    HStack(spacing: 3) {
+                        Text(label)
+                        Image(systemName: "arrow.up.right.square").font(.system(size: 10))
+                    }
+                }
+                .buttonStyle(.link)
+            }
+            .font(.system(size: 13))
+        }
+    }
+
+    /// "Add http://localhost:4096 [clipboard] as a server" step row.
+    private func addServerStepRow(number: Int, key: String, showExternalLink: Bool) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            numberBadge(number)
+            HStack(spacing: 4) {
+                Text("Add").foregroundStyle(.secondary)
+                Text("http://localhost:4096")
+                clipboardButton("http://localhost:4096", key: key, size: 10)
+                if showExternalLink {
+                    Button(action: { NSWorkspace.shared.open(URL(string: "http://localhost:4096")!) }) {
+                        Image(systemName: "arrow.up.right.square").font(.system(size: 10))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
+                Text("as a server").foregroundStyle(.secondary)
+            }
+            .font(.system(size: 13))
+        }
+    }
+
+    /// Clipboard button that briefly shows a checkmark on tap.
+    private func clipboardButton(_ text: String, key: String, size: CGFloat) -> some View {
+        Button(action: { copyToClipboard(text, key: key) }) {
+            Image(systemName: copiedKey == key ? "checkmark" : "doc.on.doc")
+                .font(.system(size: size))
+                .foregroundStyle(copiedKey == key ? Color.green : Color.secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Copy to clipboard")
+    }
+
+    private func copyToClipboard(_ text: String, key: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        withAnimation { copiedKey = key }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            withAnimation { if copiedKey == key { copiedKey = nil } }
+        }
+    }
+
+    private func numberBadge(_ n: Int) -> some View {
+        Text("\(n)")
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
+            .frame(width: 18, height: 18)
+            .background(Circle().fill(Color.accentColor))
+    }
+
+    private var openCodeCTAButton: some View {
+        Button(action: { state.advance() }) {
+            Text("Continue")
+                .font(.system(size: 13, weight: .medium))
+                .frame(minWidth: 200)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .keyboardShortcut(.defaultAction)
+    }
+
+    // MARK: - Standard layout (all other steps)
+
+    private var standardLayout: some View {
+        VStack(spacing: 0) {
+            if state.currentStep == .welcome {
+                SetupWaveformBanner()
+                Spacer(minLength: 28)
+            } else if state.currentStep.usesKeyboardIllustration {
+                Spacer(minLength: 48)
+                keyboardIllustration
+                    .padding(.bottom, 24)
+            } else {
+                Spacer(minLength: 48)
+                Image(systemName: state.currentStep.icon)
+                    .font(.system(size: 48))
+                    .foregroundStyle(iconColor)
+                    .frame(height: 60)
+                    .padding(.bottom, 24)
+            }
+
+            Text(state.currentStep.title)
+                .font(.system(size: 20, weight: .semibold))
+                .padding(.bottom, 12)
+
+            if !state.currentStep.explanation.isEmpty {
+                Text(state.currentStep.explanation)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 340)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, state.currentStep.isTryStep ? 16 : 24)
+            }
+
             if state.currentStep == .tryHoldToType {
                 TextField("Hold Right ⌥ and speak...", text: $state.tryInput)
                     .textFieldStyle(.roundedBorder)
                     .focused($tryInputFocused)
                     .frame(maxWidth: 300)
                     .onAppear { tryInputFocused = true }
-                    .onSubmit { if !state.tryInput.isEmpty { state.advance() } }
-                    .padding(.bottom, 16)
+                    .onChange(of: state.tryInput) {
+                        if !state.tryInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                                if state.currentStep == .tryHoldToType {
+                                    state.advance()
+                                }
+                            }
+                        }
+                    }
+                    .padding(.bottom, 20)
             }
 
-            // Permission granted badge
+            if state.currentStep == .tryTapToDispatch {
+                numberedSteps
+                    .padding(.bottom, 20)
+            }
+
             if isCurrentStepGranted {
                 permissionGrantedBadge
                     .padding(.bottom, 12)
             }
 
-            // Waiting for permission toggle in System Settings
             if state.isPollingPermission {
                 HStack(spacing: 6) {
                     ProgressView()
@@ -328,28 +708,43 @@ struct SetupView: View {
                 .padding(.bottom, 12)
             }
 
-            // Action button
-            Button(action: {
-                state.requestCurrentPermission()
-            }) {
-                Text(buttonLabel)
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(minWidth: 200)
+            // tryHoldToType auto-advances on text paste — no button needed
+            if state.currentStep != .tryHoldToType {
+                actionButton
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
-            .disabled(isContinueDisabled)
 
-            Spacer()
+            progressDots
+                .padding(.top, 20)
+                .padding(.bottom, 24)
         }
-        .frame(width: 420, height: state.currentStep.isTryStep ? 380 : 340)
-        .animation(.easeInOut(duration: 0.3), value: state.currentStep)
+    }
+
+    // MARK: - Shared subviews
+
+    private var progressDots: some View {
+        HStack(spacing: 6) {
+            ForEach(SetupStep.allCases, id: \.rawValue) { step in
+                Circle()
+                    .fill(step.rawValue <= state.currentStep.rawValue ? Color.accentColor : Color.secondary.opacity(0.3))
+                    .frame(width: 6, height: 6)
+            }
+        }
+    }
+
+    private var actionButton: some View {
+        Button(action: { state.requestCurrentPermission() }) {
+            Text(buttonLabel)
+                .font(.system(size: 13, weight: .medium))
+                .frame(minWidth: 200)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .keyboardShortcut(.defaultAction)
+        .disabled(isContinueDisabled)
     }
 
     private var iconColor: Color {
         switch state.currentStep {
-        case .done: return .green
         case .tryHoldToType, .tryTapToDispatch: return .orange
         default: return .accentColor
         }
@@ -378,15 +773,150 @@ struct SetupView: View {
         if state.isPollingPermission {
             return state.currentStep.buttonLabel
         }
-        // Show "Open Settings" if permission was previously denied
         switch state.currentStep {
         case .microphone where AVCaptureDevice.authorizationStatus(for: .audio) == .denied:
             return "Open Microphone Settings"
         case .speechRecognition where SFSpeechRecognizer.authorizationStatus() == .denied:
             return "Open Speech Settings"
+        case .openCodeSetup where state.openCodeOpened:
+            return "Continue"
         default:
             return state.currentStep.buttonLabel
         }
+    }
+
+    // MARK: - Image loading + shadow trimming
+
+    private static var imageCache: [String: NSImage] = [:]
+
+    private func loadResourceImage(_ name: String) -> NSImage? {
+        if let cached = Self.imageCache[name] { return cached }
+        guard let url = Bundle.module.url(forResource: name, withExtension: "png"),
+              let raw = NSImage(contentsOf: url) else { return nil }
+        let trimmed = trimTransparentBorder(raw)
+        Self.imageCache[name] = trimmed
+        return trimmed
+    }
+
+    /// Strips the transparent macOS drop-shadow border from a PNG screenshot
+    /// so it renders edge-to-edge inside the card.
+    private func trimTransparentBorder(_ image: NSImage) -> NSImage {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return image }
+        let w = cg.width, h = cg.height
+        guard w > 0, h > 0 else { return image }
+
+        // Render into RGBA buffer with top-left origin (flip CTM)
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        let space = CGColorSpaceCreateDeviceRGB()
+        let info = CGImageAlphaInfo.premultipliedLast.rawValue
+        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8,
+                                  bytesPerRow: w * 4, space: space, bitmapInfo: info)
+        else { return image }
+        ctx.translateBy(x: 0, y: CGFloat(h)); ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+
+        func a(_ x: Int, _ y: Int) -> UInt8 { px[(y * w + x) * 4 + 3] }
+
+        var x0 = 0, x1 = w - 1, y0 = 0, y1 = h - 1
+        outer: for y in 0..<h { for x in 0..<w { if a(x,y) > 10 { y0 = y; break outer } } }
+        outer: for y in stride(from: h-1, through: 0, by: -1) { for x in 0..<w { if a(x,y) > 10 { y1 = y; break outer } } }
+        outer: for x in 0..<w { for y in y0...y1 { if a(x,y) > 10 { x0 = x; break outer } } }
+        outer: for x in stride(from: w-1, through: 0, by: -1) { for y in y0...y1 { if a(x,y) > 10 { x1 = x; break outer } } }
+
+        guard x0 < x1, y0 < y1 else { return image }
+
+        let nw = x1 - x0 + 1, nh = y1 - y0 + 1
+        var out = [UInt8](repeating: 0, count: nw * nh * 4)
+        for y in 0..<nh {
+            let src = (y0 + y) * w * 4 + x0 * 4
+            let dst = y * nw * 4
+            out.replaceSubrange(dst..<dst + nw * 4, with: px[src..<src + nw * 4])
+        }
+        guard let dp = CGDataProvider(data: Data(out) as CFData),
+              let outCG = CGImage(width: nw, height: nh, bitsPerComponent: 8, bitsPerPixel: 32,
+                                  bytesPerRow: nw * 4, space: space,
+                                  bitmapInfo: CGBitmapInfo(rawValue: info),
+                                  provider: dp, decode: nil, shouldInterpolate: true,
+                                  intent: .defaultIntent)
+        else { return image }
+
+        let scale = image.size.width / CGFloat(w)
+        return NSImage(cgImage: outCG, size: CGSize(width: CGFloat(nw) * scale, height: CGFloat(nh) * scale))
+    }
+
+    // MARK: - Numbered steps (Tap-to-Agent step)
+
+    private var numberedSteps: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            stepRow(number: 1, text: "Tap Right ⌥ to start recording")
+            stepRow(number: 2, text: "Speak your prompt")
+            stepRow(number: 3, text: "Tap Right ⌥ again to stop")
+            stepRow(number: 4, text: "Press Enter to send")
+        }
+        .frame(maxWidth: 280, alignment: .leading)
+    }
+
+    private func stepRow(number: Int, text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            numberBadge(number)
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Keyboard illustration
+
+    private var keyboardIllustration: some View {
+        HStack(spacing: 3) {
+            keyCap("", width: 160, highlight: false)
+            keyCapSymbol("⌘", sublabel: "command", width: 50, highlight: false)
+            keyCapSymbol("⌥", sublabel: "option",  width: 50, highlight: true)
+            keyCapSymbol("←", sublabel: nil,        width: 36, highlight: false)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(height: 42)
+    }
+
+    private func keyCap(_ label: String, width: CGFloat, highlight: Bool) -> some View {
+        Text(label)
+            .font(.system(size: 11, weight: highlight ? .semibold : .regular))
+            .foregroundStyle(highlight ? Color.white : Color.black.opacity(0.55))
+            .frame(width: width, height: 36)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(highlight ? Color.accentColor : Color.white)
+                    .shadow(color: .black.opacity(0.12), radius: 0.5, y: 1)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(highlight ? Color.accentColor : Color.black.opacity(0.12), lineWidth: 0.5)
+            )
+    }
+
+    private func keyCapSymbol(_ symbol: String, sublabel: String?, width: CGFloat, highlight: Bool) -> some View {
+        let fg = highlight ? Color.white : Color.black.opacity(0.6)
+        return VStack(alignment: .leading, spacing: 1) {
+            Text(symbol)
+                .font(.system(size: sublabel != nil ? 11 : 14, weight: highlight ? .semibold : .regular))
+                .foregroundStyle(fg)
+            if let sublabel {
+                Text(sublabel)
+                    .font(.system(size: 7.5))
+                    .foregroundStyle(fg.opacity(0.7))
+            }
+        }
+        .padding(.leading, 6)
+        .frame(width: width, height: 36, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(highlight ? Color.accentColor : Color.white)
+                .shadow(color: .black.opacity(0.12), radius: 0.5, y: 1)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .strokeBorder(highlight ? Color.accentColor : Color.black.opacity(0.12), lineWidth: 0.5)
+        )
     }
 
     private var permissionGrantedBadge: some View {
@@ -405,6 +935,7 @@ struct SetupView: View {
 class SetupWindowController {
     private var windowController: NSWindowController?
     private(set) var state: SetupState?
+    private var heightSink: AnyCancellable?
 
     @MainActor
     func show(onSetupHotkey: ((HotkeyMode) -> Void)? = nil, onComplete: @escaping () -> Void) {
@@ -429,25 +960,48 @@ class SetupWindowController {
         let hostingController = NSHostingController(rootView: setupView)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 380),
+            contentRect: .zero,
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        window.center()
-        window.title = "Aside Setup"
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
         window.contentViewController = hostingController
+        window.setContentSize(NSSize(width: 420, height: 340))
+        window.title = "Aside"
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .visible
         window.isReleasedWhenClosed = false
+        window.center()
 
         let controller = NSWindowController(window: window)
         windowController = controller
+
+        // Animate window height whenever SwiftUI content size changes
+        heightSink = state.$contentHeight
+            .filter { $0 > 0 }
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak controller] height in
+                guard let window = controller?.window else { return }
+                let titleH = window.frame.height - window.contentRect(forFrameRect: window.frame).height
+                let newContentH = height
+                var frame = window.frame
+                let delta = newContentH - (window.frame.height - titleH)
+                frame.origin.y -= delta   // keep top edge fixed
+                frame.size.height += delta
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = 0.2
+                    ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    window.animator().setFrame(frame, display: true)
+                }
+            }
+
         NSApp.activate(ignoringOtherApps: true)
         controller.showWindow(nil)
     }
 
     func close() {
+        heightSink = nil
         windowController?.window?.close()
         windowController = nil
         state = nil
