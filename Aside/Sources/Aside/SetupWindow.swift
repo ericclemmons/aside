@@ -304,31 +304,39 @@ private struct HeightPreferenceKey: PreferenceKey {
 @MainActor
 private class MicLevelMonitor: ObservableObject {
     @Published var audioLevel: Float = 0
-    private var engine: AVAudioEngine?
+    private var recorder: AVAudioRecorder?
+    private var meterTimer: Timer?
 
     func start() {
-        guard engine == nil else { return }
-        let eng = AVAudioEngine()
-        let input = eng.inputNode
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0 else { return }
-        input.installTap(onBus: 0, bufferSize: 512, format: format) { [weak self] buf, _ in
-            guard let data = buf.floatChannelData?[0] else { return }
-            let n = Int(buf.frameLength)
-            var sum: Float = 0
-            for i in 0..<n { sum += data[i] * data[i] }
-            let rms = sqrtf(sum / Float(max(n, 1)))
-            let level = min(rms * 18, 1.0)
-            Task { @MainActor [weak self] in self?.audioLevel = level }
+        guard recorder == nil else { return }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".caf")
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatLinearPCM),
+            AVSampleRateKey: 44100,
+            AVNumberOfChannelsKey: 1,
+        ]
+        guard let rec = try? AVAudioRecorder(url: url, settings: settings),
+              rec.record() else { return }
+        rec.isMeteringEnabled = true
+        recorder = rec
+
+        meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, let rec = self.recorder else { return }
+                rec.updateMeters()
+                // averagePower: -160 dB silence → 0 dB max. Map -40..0 dB → 0..1.
+                let db = rec.averagePower(forChannel: 0)
+                self.audioLevel = Float(max(0, min(1, (Double(db) + 40) / 40)))
+            }
         }
-        try? eng.start()
-        engine = eng
     }
 
     func stop() {
-        engine?.inputNode.removeTap(onBus: 0)
-        engine?.stop()
-        engine = nil
+        meterTimer?.invalidate(); meterTimer = nil
+        recorder?.stop()
+        if let url = recorder?.url { try? FileManager.default.removeItem(at: url) }
+        recorder = nil
         audioLevel = 0
     }
 }
@@ -555,18 +563,11 @@ struct SetupView: View {
         .padding(.horizontal, 20)
         .padding(.top, 12)
 
-        // Full-bleed screenshot under step 2
-        fullBleedImage("opencode-status")
-
-        // Step 3 — clipboard icon only
         VStack(alignment: .leading, spacing: 8) {
             addServerStepRow(number: 3, key: "serverURL", showExternalLink: false)
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
-
-        // Full-bleed result screenshot
-        fullBleedImage("opencode-servers")
     }
 
     @ViewBuilder
@@ -580,15 +581,11 @@ struct SetupView: View {
         .padding(.horizontal, 20)
         .padding(.top, 12)
 
-        fullBleedImage("opencode-status")
-
         VStack(alignment: .leading, spacing: 8) {
             addServerStepRow(number: 3, key: "serverURLWeb", showExternalLink: false)
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
-
-        fullBleedImage("opencode-servers")
     }
 
     @ViewBuilder
