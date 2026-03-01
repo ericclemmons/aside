@@ -352,6 +352,9 @@ private struct SetupWaveformBanner: View {
     @State private var phase: Double = 0
     @State private var smoothedLevel: Double = 0
     @State private var animTimer: Timer?
+    // Mirror of audioLevel prop in @State so the timer closure can read live updates.
+    // Plain var props on View structs are value-captured at onAppear and never update.
+    @State private var currentAudioLevel: Float = 0
 
     // Filled colour layers — amplitude fraction, frequency, phase speed, initial offset, opacity
     private let colorLayers: [(amp: Double, freq: Double, speed: Double, offset: Double, opacity: Double)] = [
@@ -447,6 +450,7 @@ private struct SetupWaveformBanner: View {
         .frame(height: 96)
         .onAppear { startAnimating() }
         .onDisappear { stopAnimating() }
+        .onChange(of: audioLevel) { _, new in currentAudioLevel = new }
     }
 
     private func startAnimating() {
@@ -454,7 +458,7 @@ private struct SetupWaveformBanner: View {
             Task { @MainActor in
                 phase += 0.038
                 // Fast attack, slow decay — reacts instantly to voice, fades gracefully
-                let target = Double(audioLevel)
+                let target = Double(currentAudioLevel)
                 if target > smoothedLevel {
                     smoothedLevel = smoothedLevel * 0.35 + target * 0.65  // ~4 frames to peak
                 } else {
