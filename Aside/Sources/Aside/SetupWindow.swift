@@ -441,7 +441,7 @@ private struct SetupWaveformBanner: View {
                     let env      = gaussian + (1.0 - gaussian) * lineFlatness
                     let y   = midY - CGFloat(sin(t * .pi * 2 * line.freq + phase * line.speed + line.offset)
                                              * line.amp * min(env * effectiveScale, 1.0)) * halfH
-                    if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
+                    if j == 0 { path.move(to: CGPoint(x: x, y: y)) }
                     else       { path.addLine(to: CGPoint(x: x, y: y)) }
                 }
                 // Outer halo — wide, very blurry, soft
