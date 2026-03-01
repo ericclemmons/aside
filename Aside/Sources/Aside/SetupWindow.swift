@@ -579,7 +579,6 @@ struct SetupView: View {
 
     @ViewBuilder
     private var desktopTabContent: some View {
-        // Steps 1 + 2
         VStack(alignment: .leading, spacing: 8) {
             openButtonStepRow(number: 1, label: "OpenCode Desktop") {
                 let _ = NSWorkspace.shared.open(URL(string: "opencode://")!)
@@ -587,15 +586,10 @@ struct SetupView: View {
                 state.openCodeOpened = true
             }
             stepRow(number: 2, text: "Click Status in the top-right")
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-
-        VStack(alignment: .leading, spacing: 8) {
             addServerStepRow(number: 3, key: "serverURL", showExternalLink: false)
         }
         .padding(.horizontal, 20)
-        .padding(.top, 8)
+        .padding(.top, 12)
     }
 
     @ViewBuilder
@@ -605,15 +599,10 @@ struct SetupView: View {
                 NSWorkspace.shared.open(URL(string: "http://localhost:4096")!)
             }
             stepRow(number: 2, text: "Click Status in the top-right")
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-
-        VStack(alignment: .leading, spacing: 8) {
             addServerStepRow(number: 3, key: "serverURLWeb", showExternalLink: false)
         }
         .padding(.horizontal, 20)
-        .padding(.top, 8)
+        .padding(.top, 12)
     }
 
     @ViewBuilder
