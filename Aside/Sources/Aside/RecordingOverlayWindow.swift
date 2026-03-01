@@ -13,7 +13,7 @@ struct DispatchDestination: Identifiable, Equatable {
     let sessionID: String?
 
     static func newOpenCode() -> DispatchDestination {
-        DispatchDestination(id: "opencode-new", label: "New OpenCode Session", detail: nil, time: nil, sessionID: nil)
+        DispatchDestination(id: "opencode-new", label: "New Session", detail: nil, time: nil, sessionID: nil)
     }
 
     static func openCodeSession(_ session: Session) -> DispatchDestination {
