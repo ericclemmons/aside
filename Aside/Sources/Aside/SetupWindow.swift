@@ -350,8 +350,9 @@ private struct SetupWaveformBanner: View {
     var liveMode: Bool = false
 
     @State private var phase: Double = 0
-    @State private var smoothedLevel: Double = 0  // slow/smooth — drives colour fills
-    @State private var lineLevel: Double = 0       // fast/punchy — drives stroke lines
+    @State private var breathePhase: Double = 0    // secondary oscillation for line amplitude
+    @State private var smoothedLevel: Double = 0   // slow/smooth — drives colour fills
+    @State private var lineLevel: Double = 0        // fast/punchy — drives stroke lines
     @State private var animTimer: Timer?
     // Mirror of audioLevel prop in @State so the timer closure can read live updates.
     // Plain var props on View structs are value-captured at onAppear and never update.
@@ -425,15 +426,18 @@ private struct SetupWaveformBanner: View {
             }
 
             // 2. Glowing white lines — three passes per line: outer halo, mid-glow, bright core
-            for line in strokeLines {
+            for (i, line) in strokeLines.enumerated() {
+                // Each line gets its own breathe oscillation — they pulse in/out at different rates
+                let breathe = 0.5 + 0.5 * sin(breathePhase * line.speed * 0.6 + Double(i) * 1.3)
+                let effectiveScale = lineAmpScale * (liveMode ? (0.3 + 0.7 * breathe) : (0.6 + 0.4 * breathe))
                 var path = Path()
-                for i in 0...steps {
-                    let t   = Double(i) / Double(steps)
+                for j in 0...steps {
+                    let t   = Double(j) / Double(steps)
                     let x   = CGFloat(t) * size.width
                     let n   = (t - 0.5) * 4.8
                     let env = exp(-n * n * 0.52)
                     let y   = midY - CGFloat(sin(t * .pi * 2 * line.freq + phase * line.speed + line.offset)
-                                             * line.amp * min(env * lineAmpScale, 1.0)) * halfH
+                                             * line.amp * min(env * effectiveScale, 1.0)) * halfH
                     if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
                     else       { path.addLine(to: CGPoint(x: x, y: y)) }
                 }
@@ -462,18 +466,19 @@ private struct SetupWaveformBanner: View {
         animTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
             Task { @MainActor in
                 phase += 0.038 + smoothedLevel * 0.08
+                breathePhase += 0.05 + lineLevel * 0.08  // breathe faster when voice is active
                 let target = Double(currentAudioLevel)
-                // Fills: smooth swells — medium attack, slow decay
+                // Fills: smooth swells
                 if target > smoothedLevel {
                     smoothedLevel = smoothedLevel * 0.40 + target * 0.60
                 } else {
-                    smoothedLevel = smoothedLevel * 0.93 + target * 0.07
+                    smoothedLevel = smoothedLevel * 0.88 + target * 0.12
                 }
-                // Lines: quick ease-in, slow ease-out — responsive but no jitter
+                // Lines: fast attack, moderate decay
                 if target > lineLevel {
-                    lineLevel = lineLevel * 0.30 + target * 0.70
+                    lineLevel = lineLevel * 0.25 + target * 0.75
                 } else {
-                    lineLevel = lineLevel * 0.94 + target * 0.06
+                    lineLevel = lineLevel * 0.82 + target * 0.18
                 }
             }
         }
