@@ -391,14 +391,12 @@ private struct SetupWaveformBanner: View {
             let halfH = midY * 0.88
             let steps = 220
 
-            // Fills: smooth slow level — nice swells
-            let ampScale = liveMode
-                ? smoothedLevel
-                : 1.0 + smoothedLevel * 0.6
-            // Lines: fast punchy level when voice active; tiny gentle waves on welcome
-            let lineAmpScale = liveMode
-                ? lineLevel
-                : 0.20 + lineLevel * 0.3
+            // Power curve: center hits full height quickly, even at moderate volume
+            let ampScale     = liveMode ? pow(smoothedLevel, 0.35) : 1.0 + smoothedLevel * 0.6
+            let lineAmpScale = liveMode ? pow(lineLevel,     0.25) : 0.20 + lineLevel * 0.3
+            // Exponential taper: bell curve stays tight until high volume, then edges open fast
+            let fillFlatness = pow(smoothedLevel, 2.5)
+            let lineFlatness = pow(lineLevel,     2.5)
 
             // 1. Blurry colour fills
             for layer in colorLayers {
@@ -407,10 +405,8 @@ private struct SetupWaveformBanner: View {
                     let t        = Double(i) / Double(steps)
                     let x        = CGFloat(t) * size.width
                     let n        = (t - 0.5) * 4.8
-                    let gaussian   = exp(-n * n * 0.52)
-                    // Bell curve holds until 50% volume, then edges open up above that
-                    let flatFactor = max(0, (smoothedLevel - 0.5) * 2.0)
-                    let env        = gaussian + (1.0 - gaussian) * flatFactor
+                    let gaussian = exp(-n * n * 0.52)
+                    let env      = gaussian + (1.0 - gaussian) * fillFlatness
                     let dy  = CGFloat(sin(t * .pi * 2 * layer.freq + phase * layer.speed + layer.offset)
                                       * layer.amp * min(env * ampScale, 1.0)) * halfH
                     top.append(CGPoint(x: x, y: midY - dy))
@@ -441,10 +437,8 @@ private struct SetupWaveformBanner: View {
                     let t        = Double(j) / Double(steps)
                     let x        = CGFloat(t) * size.width
                     let n        = (t - 0.5) * 4.8
-                    let gaussian   = exp(-n * n * 0.52)
-                    // Bell curve holds until 50% volume, then edges open up above that
-                    let flatFactor = max(0, (lineLevel - 0.5) * 2.0)
-                    let env        = gaussian + (1.0 - gaussian) * flatFactor
+                    let gaussian = exp(-n * n * 0.52)
+                    let env      = gaussian + (1.0 - gaussian) * lineFlatness
                     let y   = midY - CGFloat(sin(t * .pi * 2 * line.freq + phase * line.speed + line.offset)
                                              * line.amp * min(env * effectiveScale, 1.0)) * halfH
                     if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
