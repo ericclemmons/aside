@@ -44,6 +44,8 @@ class OverlayState: ObservableObject {
     @Published var selectedIndex: Int = 0
     /// Editable prompt text shown in the dispatch picker.
     @Published var editablePrompt: String = ""
+    /// Number of screenshots attached so far.
+    @Published var screenshotCount: Int = 0
 
     /// Callback fired when user picks a destination.
     var onDestinationPicked: ((DispatchDestination, String) -> Void)?
@@ -99,6 +101,7 @@ class OverlayState: ObservableObject {
         destinations = []
         selectedIndex = 0
         editablePrompt = ""
+        screenshotCount = 0
         onDestinationPicked = nil
         cancellables.removeAll()
     }
@@ -112,7 +115,6 @@ class RecordingOverlayWindow: NSPanel {
 
     private var hostingView: NSHostingView<OverlayContent>?
     private var keyMonitor: Any?
-    private var clickOutsideMonitor: Any?
     private var modeSink: AnyCancellable?
 
     init() {
@@ -171,7 +173,6 @@ class RecordingOverlayWindow: NSPanel {
                     NSApp.activate(ignoringOtherApps: true)
                     self.makeKeyAndOrderFront(nil)
                     self.installKeyMonitor(state: state)
-                    self.installClickOutsideMonitor(state: state)
                 }
             }
     }
@@ -180,7 +181,7 @@ class RecordingOverlayWindow: NSPanel {
     private func positionAtTop() {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? NSScreen.screens[0]
-        let size = CGSize(width: 360, height: 460)
+        let size = CGSize(width: 440, height: 460)
         let x = screen.visibleFrame.midX - size.width / 2
         let y = screen.visibleFrame.maxY - size.height
         setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: false)
@@ -223,29 +224,10 @@ class RecordingOverlayWindow: NSPanel {
         }
     }
 
-    private func installClickOutsideMonitor(state: OverlayState) {
-        if let monitor = clickOutsideMonitor {
-            NSEvent.removeMonitor(monitor)
-        }
-        clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self, weak state] _ in
-            guard let self, let state else { return }
-            let mouse = NSEvent.mouseLocation
-            if !self.frame.contains(mouse) {
-                Task { @MainActor in
-                    state.onDestinationPicked?(DispatchDestination(id: "cancel", label: "", detail: nil, time: nil, sessionID: nil), "")
-                }
-            }
-        }
-    }
-
     private func removeMonitors() {
         if let monitor = keyMonitor {
             NSEvent.removeMonitor(monitor)
             keyMonitor = nil
-        }
-        if let monitor = clickOutsideMonitor {
-            NSEvent.removeMonitor(monitor)
-            clickOutsideMonitor = nil
         }
     }
 }
@@ -306,6 +288,19 @@ private struct DispatchPickerView: View {
                 )
                 .padding(.horizontal, 10)
                 .padding(.top, 10)
+
+            // Screenshot count badge
+            if state.screenshotCount > 0 {
+                HStack(spacing: 4) {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 10, weight: .medium))
+                    Text("\(state.screenshotCount) screenshot\(state.screenshotCount == 1 ? "" : "s") attached")
+                        .font(.system(size: 10))
+                }
+                .foregroundStyle(.white.opacity(0.55))
+                .padding(.horizontal, 18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             // Destination list
             VStack(spacing: 2) {

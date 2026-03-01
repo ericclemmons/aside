@@ -6,90 +6,38 @@ struct WaveformView: View {
     var transcribedText: String
     var isEnhancing: Bool = false
 
-    // Number of bars in the waveform
+    // Processing bars state
     private let barCount = 16
-    @State private var phases: [Double] = (0..<16).map { Double($0) * 0.4 }
+    @State private var barPhases: [Double] = (0..<16).map { Double($0) * 0.4 }
+    @State private var spinAngle: Double = 0
     @State private var animTimer: Timer?
+
     @State private var appeared = false
     @State private var textScrollID = UUID()
-    @State private var spinAngle: Double = 0
 
-    /// Whether we have text to show (drives expansion)
     private var hasText: Bool { !transcribedText.isEmpty && !isEnhancing }
-
-    /// Compact when enhancing or no text; expanded when recording with text
-    private var isCompact: Bool { isEnhancing || !hasText }
-
-    private var cornerRadius: CGFloat { isCompact ? 24 : 20 }
     private var textOverflows: Bool { transcribedText.count > 38 }
+    private var cornerRadius: CGFloat { hasText ? 16 : 20 }
 
     var body: some View {
-        VStack(spacing: isCompact ? 0 : 8) {
-            HStack(spacing: 10) {
-                // Icon: spinner when enhancing, waveform icon otherwise
-                if isEnhancing {
-                    processingSpinner
-                } else {
-                    Image(systemName: "waveform")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 16, height: 16)
-                        .foregroundStyle(.white.opacity(0.9))
-                        .transition(.opacity)
-                }
+        VStack(spacing: 0) {
+            if isEnhancing {
+                enhancingRow
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+            } else {
+                WaveformBanner(audioLevel: audioLevel, liveMode: true)
+                    .frame(height: 96)
 
-                // Bars: processing shimmer when enhancing, waveform otherwise
-                if isEnhancing {
-                    processingBars
-                        .transition(.opacity)
-                } else {
-                    waveformBars
-                        .transition(.opacity)
+                if hasText {
+                    transcriptionText
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 10)
+                        .padding(.top, 4)
                 }
-            }
-            .animation(.easeInOut(duration: 0.25), value: isEnhancing)
-
-            // Live transcription text — hidden during enhancing (compact state)
-            if hasText {
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 0) {
-                            Text(transcribedText)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.85))
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                                .id(textScrollID)
-
-                            Spacer().frame(width: 4)
-                        }
-                    }
-                    .frame(maxWidth: 260)
-                    .mask(
-                        HStack(spacing: 0) {
-                            if textOverflows {
-                                LinearGradient(
-                                    colors: [.clear, .white],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                                .frame(width: 16)
-                                .transition(.opacity)
-                            }
-                            Color.white
-                        }
-                    )
-                    .onChange(of: transcribedText) {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(textScrollID, anchor: .trailing)
-                        }
-                    }
-                }
-                .transition(.opacity)
             }
         }
-        .padding(.horizontal, isCompact ? 14 : 20)
-        .padding(.vertical, isCompact ? 10 : 12)
+        .frame(maxWidth: 420)
         .background(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(.black.opacity(0.82))
@@ -98,8 +46,9 @@ struct WaveformView: View {
                         .strokeBorder(.white.opacity(0.12), lineWidth: 1)
                 )
         )
-        .animation(.spring(response: 0.4, dampingFraction: 0.55, blendDuration: 0.1), value: isCompact)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .animation(.spring(response: 0.4, dampingFraction: 0.55, blendDuration: 0.1), value: hasText)
+        .animation(.easeInOut(duration: 0.25), value: isEnhancing)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .offset(y: appeared ? 0 : -20)
         .scaleEffect(appeared ? 1.0 : 0.8, anchor: .top)
@@ -107,9 +56,7 @@ struct WaveformView: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.65), value: appeared)
         .onAppear {
             startAnimating()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
-                appeared = true
-            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { appeared = true }
         }
         .onDisappear {
             stopAnimating()
@@ -117,34 +64,14 @@ struct WaveformView: View {
         }
     }
 
-    // MARK: - Waveform bars (recording state)
+    // MARK: - Enhancing row (spinner + shimmer bars)
 
-    private var waveformBars: some View {
-        HStack(alignment: .center, spacing: 2.5) {
-            ForEach(0..<barCount, id: \.self) { index in
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(.white)
-                    .frame(width: 2.5, height: barHeight(for: index))
-                    .animation(.easeInOut(duration: 0.1), value: audioLevel)
-            }
+    private var enhancingRow: some View {
+        HStack(spacing: 10) {
+            processingSpinner
+            processingBars
         }
-        .frame(height: 24)
     }
-
-    // MARK: - Processing bars (enhancing state)
-
-    private var processingBars: some View {
-        HStack(alignment: .center, spacing: 2.5) {
-            ForEach(0..<barCount, id: \.self) { index in
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(.white.opacity(processingBarOpacity(for: index)))
-                    .frame(width: 2.5, height: processingBarHeight(for: index))
-            }
-        }
-        .frame(height: 24)
-    }
-
-    // MARK: - Processing spinner
 
     private var processingSpinner: some View {
         Circle()
@@ -159,47 +86,69 @@ struct WaveformView: View {
             }
     }
 
-    // MARK: - Bar helpers
-
-    private func barHeight(for index: Int) -> CGFloat {
-        let level = CGFloat(audioLevel)
-        let phase = phases[index]
-        let sine = (sin(phase) + 1) / 2
-        let minH: CGFloat = 3
-        let maxH: CGFloat = 22
-
-        if isRecording {
-            let driven = minH + (maxH - minH) * level * CGFloat(sine * 0.7 + 0.3)
-            return max(minH, driven)
-        } else {
-            return minH + (maxH * 0.15) * CGFloat(sine)
+    private var processingBars: some View {
+        HStack(alignment: .center, spacing: 2.5) {
+            ForEach(0..<barCount, id: \.self) { index in
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(.white.opacity(processingBarOpacity(for: index)))
+                    .frame(width: 2.5, height: processingBarHeight(for: index))
+            }
         }
+        .frame(height: 24)
     }
 
-    /// Gentle wave pattern for processing bars — subtle, low variance
     private func processingBarHeight(for index: Int) -> CGFloat {
-        let phase = phases[index]
-        let sine = (sin(phase) + 1) / 2
-        let minH: CGFloat = 6
-        let maxH: CGFloat = 10
-        return minH + (maxH - minH) * CGFloat(sine)
+        let sine = (sin(barPhases[index]) + 1) / 2
+        return 6 + 4 * CGFloat(sine)
     }
 
-    /// Shimmer opacity for processing bars
     private func processingBarOpacity(for index: Int) -> Double {
-        let phase = phases[index]
-        let sine = (sin(phase * 1.2) + 1) / 2
+        let sine = (sin(barPhases[index] * 1.2) + 1) / 2
         return 0.35 + 0.4 * sine
     }
 
-    // MARK: - Animation timer
+    // MARK: - Transcription text
+
+    private var transcriptionText: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    Text(transcribedText)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .id(textScrollID)
+                    Spacer().frame(width: 4)
+                }
+            }
+            .mask(
+                HStack(spacing: 0) {
+                    if textOverflows {
+                        LinearGradient(colors: [.clear, .white], startPoint: .leading, endPoint: .trailing)
+                            .frame(width: 16)
+                            .transition(.opacity)
+                    }
+                    Color.white
+                }
+            )
+            .onChange(of: transcribedText) {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo(textScrollID, anchor: .trailing)
+                }
+            }
+        }
+        .transition(.opacity)
+    }
+
+    // MARK: - Animation timer (processing bars only — WaveformBanner has its own)
 
     private func startAnimating() {
         animTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
             Task { @MainActor in
-                let speed: Double = isRecording ? 0.18 : (isEnhancing ? 0.08 : 0.05)
+                let speed: Double = isEnhancing ? 0.08 : 0.05
                 for i in 0..<barCount {
-                    phases[i] += speed + Double(i) * 0.008
+                    barPhases[i] += speed + Double(i) * 0.008
                 }
             }
         }

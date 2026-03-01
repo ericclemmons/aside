@@ -8,89 +8,13 @@ import Combine
 
 enum SetupStep: Int, CaseIterable {
     case welcome
+    case screenRecording
     case microphone
     case speechRecognition
     case accessibility
-    case tryHoldToType
     case openCodeSetup
+    case tryHoldToType
     case tryTapToDispatch
-
-    var title: String {
-        switch self {
-        case .welcome: return "Welcome to Aside"
-        case .microphone: return "Record Your Voice"
-        case .speechRecognition: return "Local Transcription"
-        case .accessibility: return "Push-to-Talk Hotkey"
-        case .tryHoldToType: return "Hold-to-Type"
-        case .openCodeSetup: return "Setup OpenCode"
-        case .tryTapToDispatch: return "Tap-to-Agent"
-        }
-    }
-
-    var explanation: String {
-        switch self {
-        case .welcome:
-            return "Aside is a voice assistant that lives in your menu bar. Hold the Right Option key to dictate text, or tap it to send voice prompts to your coding agent."
-        case .microphone:
-            return "Aside needs microphone access to hear your voice. All audio stays on your Mac — nothing leaves your device."
-        case .speechRecognition:
-            return "Apple's speech recognition converts your voice to text in real-time. This powers the live transcription you see while speaking."
-        case .accessibility:
-            return "Aside uses the Right Option key as a system-wide hotkey. macOS requires Accessibility access to detect keystrokes outside the app."
-        case .tryHoldToType:
-            return "Hold Right ⌥ and say something. When you release, your words will be typed into the text field below."
-        case .openCodeSetup:
-            return "Open OpenCode Desktop, click Status in the top-right, and add the server shown below."
-        case .tryTapToDispatch:
-            return "" // Uses custom numbered steps view
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .welcome: return "waveform.circle.fill"
-        case .microphone: return "mic.fill"
-        case .speechRecognition: return "text.bubble.fill"
-        case .accessibility: return "keyboard.fill"
-        case .tryHoldToType: return "" // Uses custom keyboard view
-        case .openCodeSetup: return "server.rack"
-        case .tryTapToDispatch: return "" // Uses custom keyboard view
-        }
-    }
-
-    var usesKeyboardIllustration: Bool {
-        switch self {
-        case .tryHoldToType, .tryTapToDispatch: return true
-        default: return false
-        }
-    }
-
-    var buttonLabel: String {
-        switch self {
-        case .welcome: return "Get Started"
-        case .microphone: return "Allow Microphone"
-        case .speechRecognition: return "Allow Transcription"
-        case .accessibility: return "Open Accessibility Settings"
-        case .tryHoldToType: return "Hold Right ⌥"
-        case .openCodeSetup: return "Open OpenCode Desktop"
-        case .tryTapToDispatch: return "Tap Right ⌥"
-        }
-    }
-
-    var isPermissionStep: Bool {
-        switch self {
-        case .microphone, .speechRecognition, .accessibility: return true
-        default: return false
-        }
-    }
-
-    var isTryStep: Bool {
-        switch self {
-        case .tryHoldToType, .tryTapToDispatch: return true
-        default: return false
-        }
-    }
-
 }
 
 // MARK: - Setup State
@@ -100,6 +24,7 @@ class SetupState: ObservableObject {
     @Published var currentStep: SetupStep = .welcome
     @Published var micGranted = false
     @Published var speechGranted = false
+    @Published var screenRecordingGranted = false
     @Published var accessibilityGranted = false
     @Published var tryInput: String = ""
     @Published var tryDispatchTested: Bool = false
@@ -123,13 +48,15 @@ class SetupState: ObservableObject {
     func checkPermissions() {
         micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         speechGranted = SFSpeechRecognizer.authorizationStatus() == .authorized
+        screenRecordingGranted = CGPreflightScreenCaptureAccess()
         accessibilityGranted = AXIsProcessTrustedWithOptions(nil)
-        print("[Setup] Permissions — mic: \(micGranted), speech: \(speechGranted), accessibility: \(accessibilityGranted)")
+        print("[Setup] Permissions — mic: \(micGranted), speech: \(speechGranted), screenRecording: \(screenRecordingGranted), accessibility: \(accessibilityGranted)")
 
         // Clear stale TCC entries from previous builds so the fresh binary
         // can re-request permissions cleanly.
         if !micGranted { resetTCC("Microphone") }
         if !speechGranted { resetTCC("SpeechRecognition") }
+        if !screenRecordingGranted { resetTCC("ScreenCapture") }
         if !accessibilityGranted { resetTCC("Accessibility") }
     }
 
@@ -163,6 +90,10 @@ class SetupState: ObservableObject {
             advance()
             return
         case .speechRecognition where speechGranted:
+            currentStep = next
+            advance()
+            return
+        case .screenRecording where screenRecordingGranted:
             currentStep = next
             advance()
             return
@@ -217,6 +148,15 @@ class SetupState: ObservableObject {
                     }
                 }
             }
+        case .screenRecording:
+            let granted = CGPreflightScreenCaptureAccess()
+            screenRecordingGranted = granted
+            if granted {
+                advance()
+            } else {
+                CGRequestScreenCaptureAccess()
+                startPermissionPolling()
+            }
         case .accessibility:
             let trusted = AXIsProcessTrustedWithOptions(
                 [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
@@ -266,6 +206,9 @@ class SetupState: ObservableObject {
                 case .speechRecognition:
                     granted = SFSpeechRecognizer.authorizationStatus() == .authorized
                     self.speechGranted = granted
+                case .screenRecording:
+                    granted = CGPreflightScreenCaptureAccess()
+                    self.screenRecordingGranted = granted
                 case .accessibility:
                     granted = AXIsProcessTrustedWithOptions(nil)
                     self.accessibilityGranted = granted
@@ -341,9 +284,9 @@ private class MicLevelMonitor: ObservableObject {
     }
 }
 
-// MARK: - Waveform banner (welcome / mic / speech steps)
+// MARK: - Waveform banner
 
-private struct SetupWaveformBanner: View {
+struct WaveformBanner: View {
     var audioLevel: Float = 0
     /// false = always-on idle animation (welcome screen)
     /// true  = flat at silence, driven by mic (mic/speech screens)
@@ -459,7 +402,6 @@ private struct SetupWaveformBanner: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 96)
         .onAppear { startAnimating() }
         .onDisappear { stopAnimating() }
         .onChange(of: audioLevel) { _, new in currentAudioLevel = new }
@@ -517,10 +459,15 @@ struct SetupView: View {
 
     var body: some View {
         Group {
-            if state.currentStep == .openCodeSetup {
-                openCodeCard
-            } else {
-                standardLayout
+            switch state.currentStep {
+            case .welcome:            welcomeCard
+            case .microphone:         microphoneCard
+            case .speechRecognition:  speechRecognitionCard
+            case .screenRecording:    screenRecordingCard
+            case .accessibility:      accessibilityCard
+            case .openCodeSetup:      openCodeCard
+            case .tryHoldToType:      holdToTypeCard
+            case .tryTapToDispatch:   tapToDispatchCard
             }
         }
         .frame(width: 420)
@@ -537,11 +484,203 @@ struct SetupView: View {
         .onChange(of: state.micGranted)  { updateMonitor() }
     }
 
-    // MARK: - OpenCode card layout (tabbed: Desktop / Web / CLI)
+    // MARK: - Welcome card
+
+    private var welcomeCard: some View {
+        VStack(spacing: 0) {
+            WaveformBanner(audioLevel: 0, liveMode: false)
+                .frame(height: 96)
+            Spacer(minLength: 28)
+            Text("Welcome to Aside")
+                .font(.system(size: 20, weight: .semibold))
+                .padding(.bottom, 12)
+            Text("Aside is a voice assistant that lives in your menu bar. Hold the Right Option key to dictate text, or tap it to send voice prompts to your coding agent.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 340)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 24)
+            Button(action: { state.advance() }) {
+                Text("Get Started")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(minWidth: 200)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            progressDots
+                .padding(.top, 20)
+                .padding(.bottom, 24)
+        }
+    }
+
+    // MARK: - Microphone card
+
+    private var microphoneCard: some View {
+        VStack(spacing: 0) {
+            WaveformBanner(audioLevel: micMonitor.audioLevel, liveMode: true)
+                .frame(height: 96)
+            Spacer(minLength: 28)
+            Text("Record Your Voice")
+                .font(.system(size: 20, weight: .semibold))
+                .padding(.bottom, 12)
+            Text("Aside needs microphone access to hear your voice. All audio stays on your Mac — nothing leaves your device.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 340)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 24)
+            if state.micGranted {
+                permissionGrantedBadge
+                    .padding(.bottom, 12)
+            }
+            permissionPollingIndicator
+            Button(action: { state.requestCurrentPermission() }) {
+                Text(microphoneButtonLabel)
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(minWidth: 200)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            progressDots
+                .padding(.top, 20)
+                .padding(.bottom, 24)
+        }
+    }
+
+    private var microphoneButtonLabel: String {
+        if state.micGranted { return "Continue" }
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .denied { return "Open Microphone Settings" }
+        return "Allow Microphone"
+    }
+
+    // MARK: - Speech Recognition card
+
+    private var speechRecognitionCard: some View {
+        VStack(spacing: 0) {
+            WaveformBanner(audioLevel: micMonitor.audioLevel, liveMode: true)
+                .frame(height: 96)
+            Spacer(minLength: 28)
+            Text("Local Transcription")
+                .font(.system(size: 20, weight: .semibold))
+                .padding(.bottom, 12)
+            Text("Apple's speech recognition converts your voice to text in real-time. This powers the live transcription you see while speaking.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 340)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 24)
+            if state.speechGranted {
+                permissionGrantedBadge
+                    .padding(.bottom, 12)
+            }
+            permissionPollingIndicator
+            Button(action: { state.requestCurrentPermission() }) {
+                Text(speechRecognitionButtonLabel)
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(minWidth: 200)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            progressDots
+                .padding(.top, 20)
+                .padding(.bottom, 24)
+        }
+    }
+
+    private var speechRecognitionButtonLabel: String {
+        if state.speechGranted { return "Continue" }
+        if SFSpeechRecognizer.authorizationStatus() == .denied { return "Open Speech Settings" }
+        return "Allow Transcription"
+    }
+
+    // MARK: - Screen Recording card
+
+    private var screenRecordingCard: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 48)
+            Image(systemName: "camera.viewfinder")
+                .font(.system(size: 48))
+                .foregroundStyle(Color.accentColor)
+                .frame(height: 60)
+                .padding(.bottom, 24)
+            Text("Screen Recording")
+                .font(.system(size: 20, weight: .semibold))
+                .padding(.bottom, 12)
+            Text("Aside can capture screenshots while you speak, attaching them to your prompt.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 340)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 24)
+            if state.screenRecordingGranted {
+                permissionGrantedBadge
+                    .padding(.bottom, 12)
+            }
+            permissionPollingIndicator
+            Button(action: { state.requestCurrentPermission() }) {
+                Text(state.screenRecordingGranted ? "Continue" : "Allow Screen Recording")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(minWidth: 200)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            progressDots
+                .padding(.top, 20)
+                .padding(.bottom, 24)
+        }
+    }
+
+    // MARK: - Accessibility card
+
+    private var accessibilityCard: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 48)
+            Image(systemName: "keyboard.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(Color.accentColor)
+                .frame(height: 60)
+                .padding(.bottom, 24)
+            Text("Push-to-Talk Hotkey")
+                .font(.system(size: 20, weight: .semibold))
+                .padding(.bottom, 12)
+            Text("Aside uses the Right Option key as a system-wide hotkey. macOS requires Accessibility access to detect keystrokes outside the app.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 340)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 24)
+            if state.accessibilityGranted {
+                permissionGrantedBadge
+                    .padding(.bottom, 12)
+            }
+            permissionPollingIndicator
+            Button(action: { state.requestCurrentPermission() }) {
+                Text(state.accessibilityGranted ? "Continue" : "Open Accessibility Settings")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(minWidth: 200)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            progressDots
+                .padding(.top, 20)
+                .padding(.bottom, 24)
+        }
+    }
+
+    // MARK: - OpenCode card (tabbed: Desktop / Web / CLI)
 
     private var openCodeCard: some View {
         VStack(spacing: 0) {
-            // Wordmark — same vertical rhythm as icon steps in standardLayout
             Spacer(minLength: 48)
             if let url = Bundle.module.url(forResource: "opencode.wordmark", withExtension: "svg"),
                let img = NSImage(contentsOf: url) {
@@ -551,7 +690,7 @@ struct SetupView: View {
                     .frame(height: 60)
                     .padding(.bottom, 36)
             } else {
-                Text(state.currentStep.title)
+                Text("Setup OpenCode")
                     .font(.system(size: 20, weight: .semibold))
                     .frame(height: 60)
                     .padding(.bottom, 36)
@@ -576,8 +715,15 @@ struct SetupView: View {
             }
             .padding(.vertical, 8)
 
-            openCodeCTAButton
-                .padding(.top, 16)
+            Button(action: { state.advance() }) {
+                Text("Continue")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(minWidth: 200)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            .padding(.top, 16)
 
             progressDots
                 .padding(.top, 16)
@@ -632,6 +778,181 @@ struct SetupView: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
+    }
+
+    // MARK: - Hold-to-Type card
+
+    private var holdToTypeCard: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 48)
+            keyboardIllustration
+                .padding(.bottom, 24)
+            Text("Hold-to-Type")
+                .font(.system(size: 20, weight: .semibold))
+                .padding(.bottom, 12)
+            Text("Hold Right ⌥ and say something. When you release, your words will be typed into the text field below.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 340)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 16)
+            TextField("Hold Right ⌥ and speak...", text: $state.tryInput)
+                .textFieldStyle(.roundedBorder)
+                .focused($tryInputFocused)
+                .frame(maxWidth: 300)
+                .onAppear { tryInputFocused = true }
+                .onChange(of: state.tryInput) {
+                    if !state.tryInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                            if state.currentStep == .tryHoldToType {
+                                state.advance()
+                            }
+                        }
+                    }
+                }
+                .padding(.bottom, 20)
+            progressDots
+                .padding(.top, 20)
+                .padding(.bottom, 24)
+        }
+    }
+
+    // MARK: - Tap-to-Dispatch card
+
+    private var tapToDispatchCard: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 48)
+            keyboardIllustration
+                .padding(.bottom, 24)
+            Text("Tap-to-Agent")
+                .font(.system(size: 20, weight: .semibold))
+                .padding(.bottom, 12)
+            numberedSteps
+                .padding(.bottom, 20)
+            Button(action: { state.requestCurrentPermission() }) {
+                Text("Finish Setup")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(minWidth: 200)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            progressDots
+                .padding(.top, 20)
+                .padding(.bottom, 24)
+        }
+    }
+
+    // MARK: - Shared subviews
+
+    private var progressDots: some View {
+        HStack(spacing: 6) {
+            ForEach(SetupStep.allCases, id: \.rawValue) { step in
+                Circle()
+                    .fill(step.rawValue <= state.currentStep.rawValue ? Color.accentColor : Color.secondary.opacity(0.3))
+                    .frame(width: 6, height: 6)
+            }
+        }
+    }
+
+    private var permissionGrantedBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+            Text("Permission granted")
+                .foregroundStyle(.secondary)
+        }
+        .font(.system(size: 12))
+    }
+
+    @ViewBuilder
+    private var permissionPollingIndicator: some View {
+        if state.isPollingPermission {
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Waiting for permission...")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.bottom, 12)
+        }
+    }
+
+    // MARK: - Numbered steps (Tap-to-Agent step)
+
+    private var numberedSteps: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            stepRow(number: 1, text: "Tap Right ⌥ to start recording")
+            stepRow(number: 2, text: "Speak your prompt")
+            stepRow(number: 3, text: "Tap Right ⌥ again to stop")
+            stepRow(number: 4, text: "Press Enter to send")
+        }
+        .frame(maxWidth: 280, alignment: .leading)
+    }
+
+    private func stepRow(number: Int, text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            numberBadge(number)
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Keyboard illustration
+
+    private var keyboardIllustration: some View {
+        HStack(spacing: 3) {
+            keyCap("", width: 160, highlight: false)
+            keyCapSymbol("⌘", sublabel: "command", width: 50, highlight: false)
+            keyCapSymbol("⌥", sublabel: "option",  width: 50, highlight: true)
+            keyCapSymbol("←", sublabel: nil,        width: 36, highlight: false)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(height: 42)
+    }
+
+    private func keyCap(_ label: String, width: CGFloat, highlight: Bool) -> some View {
+        Text(label)
+            .font(.system(size: 11, weight: highlight ? .semibold : .regular))
+            .foregroundStyle(highlight ? Color.white : Color.black.opacity(0.55))
+            .frame(width: width, height: 36)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(highlight ? Color.accentColor : Color.white)
+                    .shadow(color: .black.opacity(0.12), radius: 0.5, y: 1)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(highlight ? Color.accentColor : Color.black.opacity(0.12), lineWidth: 0.5)
+            )
+    }
+
+    private func keyCapSymbol(_ symbol: String, sublabel: String?, width: CGFloat, highlight: Bool) -> some View {
+        let fg = highlight ? Color.white : Color.black.opacity(0.6)
+        return VStack(alignment: .leading, spacing: 1) {
+            Text(symbol)
+                .font(.system(size: sublabel != nil ? 11 : 14, weight: highlight ? .semibold : .regular))
+                .foregroundStyle(fg)
+            if let sublabel {
+                Text(sublabel)
+                    .font(.system(size: 7.5))
+                    .foregroundStyle(fg.opacity(0.7))
+            }
+        }
+        .padding(.leading, 6)
+        .frame(width: width, height: 36, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(highlight ? Color.accentColor : Color.white)
+                .shadow(color: .black.opacity(0.12), radius: 0.5, y: 1)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .strokeBorder(highlight ? Color.accentColor : Color.black.opacity(0.12), lineWidth: 0.5)
+        )
     }
 
     // MARK: - OpenCode helpers
@@ -716,168 +1037,6 @@ struct SetupView: View {
             .background(Circle().fill(Color.accentColor))
     }
 
-    private var openCodeCTAButton: some View {
-        Button(action: { state.advance() }) {
-            Text("Continue")
-                .font(.system(size: 13, weight: .medium))
-                .frame(minWidth: 200)
-        }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .keyboardShortcut(.defaultAction)
-    }
-
-    // MARK: - Standard layout (all other steps)
-
-    private var standardLayout: some View {
-        VStack(spacing: 0) {
-            if [.welcome, .microphone, .speechRecognition].contains(state.currentStep) {
-                let isLive = state.currentStep == .microphone || state.currentStep == .speechRecognition
-                SetupWaveformBanner(audioLevel: micMonitor.audioLevel, liveMode: isLive)
-                Spacer(minLength: 28)
-            } else if state.currentStep.usesKeyboardIllustration {
-                Spacer(minLength: 48)
-                keyboardIllustration
-                    .padding(.bottom, 24)
-            } else {
-                Spacer(minLength: 48)
-                Image(systemName: state.currentStep.icon)
-                    .font(.system(size: 48))
-                    .foregroundStyle(iconColor)
-                    .frame(height: 60)
-                    .padding(.bottom, 24)
-            }
-
-            Text(state.currentStep.title)
-                .font(.system(size: 20, weight: .semibold))
-                .padding(.bottom, 12)
-
-            if !state.currentStep.explanation.isEmpty {
-                Text(state.currentStep.explanation)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 340)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, state.currentStep.isTryStep ? 16 : 24)
-            }
-
-            if state.currentStep == .tryHoldToType {
-                TextField("Hold Right ⌥ and speak...", text: $state.tryInput)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($tryInputFocused)
-                    .frame(maxWidth: 300)
-                    .onAppear { tryInputFocused = true }
-                    .onChange(of: state.tryInput) {
-                        if !state.tryInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                                if state.currentStep == .tryHoldToType {
-                                    state.advance()
-                                }
-                            }
-                        }
-                    }
-                    .padding(.bottom, 20)
-            }
-
-            if state.currentStep == .tryTapToDispatch {
-                numberedSteps
-                    .padding(.bottom, 20)
-            }
-
-            if isCurrentStepGranted {
-                permissionGrantedBadge
-                    .padding(.bottom, 12)
-            }
-
-            if state.isPollingPermission {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Waiting for permission...")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.bottom, 12)
-            }
-
-            // tryHoldToType auto-advances on text paste — no button needed
-            if state.currentStep != .tryHoldToType {
-                actionButton
-            }
-
-            progressDots
-                .padding(.top, 20)
-                .padding(.bottom, 24)
-        }
-    }
-
-    // MARK: - Shared subviews
-
-    private var progressDots: some View {
-        HStack(spacing: 6) {
-            ForEach(SetupStep.allCases, id: \.rawValue) { step in
-                Circle()
-                    .fill(step.rawValue <= state.currentStep.rawValue ? Color.accentColor : Color.secondary.opacity(0.3))
-                    .frame(width: 6, height: 6)
-            }
-        }
-    }
-
-    private var actionButton: some View {
-        Button(action: { state.requestCurrentPermission() }) {
-            Text(buttonLabel)
-                .font(.system(size: 13, weight: .medium))
-                .frame(minWidth: 200)
-        }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .keyboardShortcut(.defaultAction)
-        .disabled(isContinueDisabled)
-    }
-
-    private var iconColor: Color {
-        switch state.currentStep {
-        case .tryHoldToType, .tryTapToDispatch: return .orange
-        default: return .accentColor
-        }
-    }
-
-    private var isContinueDisabled: Bool {
-        switch state.currentStep {
-        case .tryHoldToType: return state.tryInput.isEmpty
-        default: return false
-        }
-    }
-
-    private var isCurrentStepGranted: Bool {
-        switch state.currentStep {
-        case .microphone: return state.micGranted
-        case .speechRecognition: return state.speechGranted
-        case .accessibility: return state.accessibilityGranted
-        default: return false
-        }
-    }
-
-    private var buttonLabel: String {
-        if isCurrentStepGranted {
-            return "Continue"
-        }
-        if state.isPollingPermission {
-            return state.currentStep.buttonLabel
-        }
-        switch state.currentStep {
-        case .microphone where AVCaptureDevice.authorizationStatus(for: .audio) == .denied:
-            return "Open Microphone Settings"
-        case .speechRecognition where SFSpeechRecognizer.authorizationStatus() == .denied:
-            return "Open Speech Settings"
-        case .openCodeSetup where state.openCodeOpened:
-            return "Continue"
-        default:
-            return state.currentStep.buttonLabel
-        }
-    }
-
     // MARK: - Image loading + shadow trimming
 
     private static var imageCache: [String: NSImage] = [:]
@@ -936,91 +1095,6 @@ struct SetupView: View {
         let scale = image.size.width / CGFloat(w)
         return NSImage(cgImage: outCG, size: CGSize(width: CGFloat(nw) * scale, height: CGFloat(nh) * scale))
     }
-
-    // MARK: - Numbered steps (Tap-to-Agent step)
-
-    private var numberedSteps: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            stepRow(number: 1, text: "Tap Right ⌥ to start recording")
-            stepRow(number: 2, text: "Speak your prompt")
-            stepRow(number: 3, text: "Tap Right ⌥ again to stop")
-            stepRow(number: 4, text: "Press Enter to send")
-        }
-        .frame(maxWidth: 280, alignment: .leading)
-    }
-
-    private func stepRow(number: Int, text: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            numberBadge(number)
-            Text(text)
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    // MARK: - Keyboard illustration
-
-    private var keyboardIllustration: some View {
-        HStack(spacing: 3) {
-            keyCap("", width: 160, highlight: false)
-            keyCapSymbol("⌘", sublabel: "command", width: 50, highlight: false)
-            keyCapSymbol("⌥", sublabel: "option",  width: 50, highlight: true)
-            keyCapSymbol("←", sublabel: nil,        width: 36, highlight: false)
-        }
-        .frame(maxWidth: .infinity, alignment: .center)
-        .frame(height: 42)
-    }
-
-    private func keyCap(_ label: String, width: CGFloat, highlight: Bool) -> some View {
-        Text(label)
-            .font(.system(size: 11, weight: highlight ? .semibold : .regular))
-            .foregroundStyle(highlight ? Color.white : Color.black.opacity(0.55))
-            .frame(width: width, height: 36)
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(highlight ? Color.accentColor : Color.white)
-                    .shadow(color: .black.opacity(0.12), radius: 0.5, y: 1)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .strokeBorder(highlight ? Color.accentColor : Color.black.opacity(0.12), lineWidth: 0.5)
-            )
-    }
-
-    private func keyCapSymbol(_ symbol: String, sublabel: String?, width: CGFloat, highlight: Bool) -> some View {
-        let fg = highlight ? Color.white : Color.black.opacity(0.6)
-        return VStack(alignment: .leading, spacing: 1) {
-            Text(symbol)
-                .font(.system(size: sublabel != nil ? 11 : 14, weight: highlight ? .semibold : .regular))
-                .foregroundStyle(fg)
-            if let sublabel {
-                Text(sublabel)
-                    .font(.system(size: 7.5))
-                    .foregroundStyle(fg.opacity(0.7))
-            }
-        }
-        .padding(.leading, 6)
-        .frame(width: width, height: 36, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(highlight ? Color.accentColor : Color.white)
-                .shadow(color: .black.opacity(0.12), radius: 0.5, y: 1)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .strokeBorder(highlight ? Color.accentColor : Color.black.opacity(0.12), lineWidth: 0.5)
-        )
-    }
-
-    private var permissionGrantedBadge: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-            Text("Permission granted")
-                .foregroundStyle(.secondary)
-        }
-        .font(.system(size: 12))
-    }
 }
 
 // MARK: - Setup Window
@@ -1037,7 +1111,8 @@ class SetupWindowController {
         state.checkPermissions()
 
         // If all permissions already granted, skip setup entirely
-        if state.micGranted && state.speechGranted && state.accessibilityGranted {
+        if state.micGranted && state.speechGranted
+            && state.screenRecordingGranted && state.accessibilityGranted {
             onComplete()
             return
         }

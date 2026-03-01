@@ -116,6 +116,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// The context captured when recording starts.
     private var capturedContext: ActiveContext?
 
+    /// Screencapture process running while dispatch picker is visible.
+    private var screencaptureProcess: Process?
+    /// Temp file paths for screenshots taken during the current dispatch session.
+    private var screenshotPaths: [String] = []
+
     /// Recording state machine — single source of truth, no boolean flags.
     private enum RecordingPhase {
         case idle
@@ -126,8 +131,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     private var phase: RecordingPhase = .idle
 
-    /// Global click monitor to dismiss persistent recording.
-    private var clickMonitor: Any?
 
     var transcriptionEngine: TranscriptionEngine {
         get {
@@ -290,6 +293,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if hasText {
                 // Stop recording and show dispatch picker
                 phase = .finishingDispatch
+                stopScreenCapture()
                 stopTranscriber()
             } else {
                 // No text — cancel
@@ -318,16 +322,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             // No text yet — enter persistent mode (keep recording)
             phase = .persistent
+            screenshotPaths = []
+            overlayState.screenshotCount = 0
+            startScreenCapture()
             // Capture context and refresh sessions async to avoid blocking main thread
             Task {
                 let ctx = await Task.detached { ContextCapture.getActiveContext() }.value
                 self.capturedContext = ctx
             }
             Task { await sessionManager.refresh() }
-            // Click anywhere to cancel persistent recording
-            clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-                self?.cancelRecording()
-            }
         }
     }
 
@@ -488,17 +491,68 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         overlayState.showPicker(destinations: destinations, prompt: prompt) { [weak self] picked, editedPrompt in
             guard let self else { return }
 
+            self.stopScreenCapture()
+
             // "cancel" is a synthetic destination from Escape key
             guard picked.id != "cancel" else {
+                // Delete any screenshots taken during this session
+                for path in self.screenshotPaths {
+                    try? FileManager.default.removeItem(atPath: path)
+                }
+                self.screenshotPaths = []
                 self.finishSession()
                 return
             }
 
             let finalPrompt = editedPrompt.isEmpty ? prompt : editedPrompt
-            CLIDispatcher.dispatch(prompt: finalPrompt, sessionID: picked.sessionID)
+            let paths = self.screenshotPaths
+            self.screenshotPaths = []  // clear so finishSession doesn't delete
+            CLIDispatcher.dispatch(prompt: finalPrompt, sessionID: picked.sessionID, filePaths: paths)
             self.finishSession()
         }
+    }
 
+    // MARK: - Screenshot capture
+
+    private func startScreenCapture() {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd 'at' h.mm.ss a"
+        let timestamp = formatter.string(from: Date())
+        let tempPath = "/tmp/com.ericclemmons.Aside-\(timestamp).png"
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        process.arguments = ["-Wo", tempPath]
+        process.terminationHandler = { [weak self] proc in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.screencaptureProcess = nil
+                let exists = FileManager.default.fileExists(atPath: tempPath)
+                print("[Screenshot] terminated status=\(proc.terminationStatus) file=\(exists) path=\(tempPath)")
+                if exists {
+                    self.screenshotPaths.append(tempPath)
+                    self.overlayState.screenshotCount = self.screenshotPaths.count
+                    print("[Screenshot] collected \(self.screenshotPaths.count) screenshot(s)")
+                }
+                // Re-spawn only while still in persistent recording
+                if self.phase == .persistent {
+                    self.startScreenCapture()
+                }
+            }
+        }
+
+        do {
+            try process.run()
+            screencaptureProcess = process
+            print("[Screenshot] screencapture started PID: \(process.processIdentifier)")
+        } catch {
+            print("[Screenshot] Failed to spawn screencapture: \(error)")
+        }
+    }
+
+    private func stopScreenCapture() {
+        screencaptureProcess?.terminate()
+        screencaptureProcess = nil
     }
 
     // MARK: - Cancel recording (Escape during toggle)
@@ -515,6 +569,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             speechTranscriber.onTranscriptionFinished = nil
             speechTranscriber.stopRecording()
         }
+        // Clean up any screenshots taken during this session
+        for path in screenshotPaths {
+            try? FileManager.default.removeItem(atPath: path)
+        }
+        screenshotPaths = []
         finishSession()
     }
 
@@ -522,10 +581,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func finishSession() {
         print("[Recording] finishSession called, phase=\(phase)")
-        if let monitor = clickMonitor {
-            NSEvent.removeMonitor(monitor)
-            clickMonitor = nil
-        }
+        stopScreenCapture()
         phase = .idle
         overlayState.reset()
         capturedContext = nil

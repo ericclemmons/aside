@@ -7,16 +7,20 @@ struct CLIDispatcher {
     /// - Parameters:
     ///   - prompt: The assembled prompt string (with context).
     ///   - sessionID: Optional opencode session ID to attach to.
-    static func dispatch(prompt: String, sessionID: String? = nil) {
+    ///   - filePaths: Optional file paths to attach with `-f`.
+    static func dispatch(prompt: String, sessionID: String? = nil, filePaths: [String] = []) {
         let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
         let opencodePath = "\(home)/.opencode/bin/opencode"
 
-        // Build the shell command with proper quoting
-        var cmd = "\(opencodePath) --attach localhost:4096"
+        // Pipe prompt via stdin; `run` subcommand first, then flags
+        var cmd = "echo \(shellQuote(prompt)) | \(opencodePath) run"
+        cmd += " --attach localhost:4096"
         if let sessionID, !sessionID.isEmpty {
             cmd += " --session \(shellQuote(sessionID))"
         }
-        cmd += " run \(shellQuote(prompt))"
+        for path in filePaths {
+            cmd += " --file=\(shellQuote(path))"
+        }
 
         print("[Dispatch] \(cmd.prefix(200))")
 
