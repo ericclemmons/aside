@@ -427,9 +427,9 @@ private struct SetupWaveformBanner: View {
 
             // 2. Glowing white lines — three passes per line: outer halo, mid-glow, bright core
             for (i, line) in strokeLines.enumerated() {
-                // Each line gets its own breathe oscillation — they pulse in/out at different rates
-                let breathe = 0.5 + 0.5 * sin(breathePhase * line.speed * 0.6 + Double(i) * 1.3)
-                let effectiveScale = lineAmpScale * (liveMode ? (0.3 + 0.7 * breathe) : (0.6 + 0.4 * breathe))
+                // Each line oscillates independently — dramatic swings like an EQ band
+                let breathe = 0.5 + 0.5 * sin(breathePhase * line.speed * 1.8 + Double(i) * 2.1)
+                let effectiveScale = lineAmpScale * (liveMode ? breathe : (0.5 + 0.5 * breathe))
                 var path = Path()
                 for j in 0...steps {
                     let t   = Double(j) / Double(steps)
@@ -466,7 +466,7 @@ private struct SetupWaveformBanner: View {
         animTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
             Task { @MainActor in
                 phase += 0.038 + smoothedLevel * 0.08
-                breathePhase += 0.05 + lineLevel * 0.08  // breathe faster when voice is active
+                breathePhase += 0.25 + lineLevel * 0.40  // 5x faster, really races with voice
                 let target = Double(currentAudioLevel)
                 // Fills: smooth swells
                 if target > smoothedLevel {
