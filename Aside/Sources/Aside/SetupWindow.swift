@@ -518,11 +518,21 @@ struct SetupView: View {
 
     private var openCodeCard: some View {
         VStack(spacing: 0) {
-            // Title — same style as other step titles
-            Text(state.currentStep.title)
-                .font(.system(size: 20, weight: .semibold))
-                .padding(.top, 32)
-                .padding(.bottom, 12)
+            // Wordmark replaces text title
+            if let url = Bundle.module.url(forResource: "opencode.wordmark", withExtension: "svg"),
+               let img = NSImage(contentsOf: url) {
+                Image(nsImage: img)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 30)
+                    .padding(.top, 32)
+                    .padding(.bottom, 12)
+            } else {
+                Text(state.currentStep.title)
+                    .font(.system(size: 20, weight: .semibold))
+                    .padding(.top, 32)
+                    .padding(.bottom, 12)
+            }
 
             // Tab picker
             Picker("", selection: $openCodeTab) {

@@ -373,10 +373,20 @@ private struct DestinationRow: View {
                     .frame(width: 52, alignment: .leading)
             }
 
-            Image(systemName: "chevron.left.forwardslash.chevron.right")
-                .font(.system(size: 11))
-                .foregroundStyle(isSelected ? .white : .white.opacity(0.5))
-                .frame(width: 16)
+            Group {
+                if let url = Bundle.module.url(forResource: "opencode.logo", withExtension: "svg"),
+                   let img = NSImage(contentsOf: url) {
+                    Image(nsImage: img)
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    Image(systemName: "chevron.left.forwardslash.chevron.right")
+                        .font(.system(size: 11))
+                }
+            }
+            .foregroundStyle(isSelected ? .white : .white.opacity(0.5))
+            .frame(width: 13, height: 16)
 
             Text(destination.label)
                 .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
