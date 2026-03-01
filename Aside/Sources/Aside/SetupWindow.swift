@@ -316,9 +316,9 @@ private class MicLevelMonitor: ObservableObject {
             AVSampleRateKey: 44100,
             AVNumberOfChannelsKey: 1,
         ]
-        guard let rec = try? AVAudioRecorder(url: url, settings: settings),
-              rec.record() else { return }
-        rec.isMeteringEnabled = true
+        guard let rec = try? AVAudioRecorder(url: url, settings: settings) else { return }
+        rec.isMeteringEnabled = true   // must be set before record()
+        guard rec.record() else { return }
         recorder = rec
 
         meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
