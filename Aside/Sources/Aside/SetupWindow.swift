@@ -365,12 +365,12 @@ private struct SetupWaveformBanner: View {
         (0.45, 2.50, 1.50, .pi * 0.35, 0.40),
     ]
 
-    // White glow lines — high freq ridges driven by the fast lineLevel tracker
+    // White glow lines — low-to-mid freq for a clean rolling sine wave shape
     private let strokeLines: [(amp: Double, freq: Double, speed: Double, offset: Double, opacity: Double)] = [
-        (0.88, 13.0, 1.10, .pi * 0.20, 0.75),
-        (0.78, 18.0, 1.70, .pi * 1.10, 0.65),
-        (0.92,  9.5, 0.75, .pi * 1.80, 0.58),
-        (0.65, 22.0, 2.20, .pi * 0.90, 0.48),
+        (0.88, 2.5, 1.10, .pi * 0.20, 0.75),
+        (0.78, 3.8, 1.70, .pi * 1.10, 0.65),
+        (0.92, 1.7, 0.75, .pi * 1.80, 0.58),
+        (0.70, 4.8, 2.20, .pi * 0.90, 0.48),
     ]
 
     // Purple → indigo → teal → pink
@@ -391,10 +391,10 @@ private struct SetupWaveformBanner: View {
             let ampScale = liveMode
                 ? smoothedLevel
                 : 1.0 + smoothedLevel * 0.6
-            // Lines: fast punchy level — snaps to voice peaks
+            // Lines: fast punchy level when voice active; tiny gentle waves on welcome
             let lineAmpScale = liveMode
                 ? lineLevel
-                : 1.0 + lineLevel * 0.9
+                : 0.20 + lineLevel * 0.3
 
             // 1. Blurry colour fills
             for layer in colorLayers {
