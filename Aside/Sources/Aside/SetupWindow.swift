@@ -540,7 +540,7 @@ struct SetupView: View {
                 Image(nsImage: img)
                     .resizable()
                     .scaledToFit()
-                    .frame(height: 38)
+                    .frame(height: 60)
                     .padding(.bottom, 24)
             } else {
                 Text(state.currentStep.title)
