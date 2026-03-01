@@ -475,13 +475,13 @@ private struct SetupWaveformBanner: View {
                 if target > smoothedLevel {
                     smoothedLevel = smoothedLevel * 0.40 + target * 0.60
                 } else {
-                    smoothedLevel = smoothedLevel * 0.88 + target * 0.12
+                    smoothedLevel = smoothedLevel * 0.76 + target * 0.24
                 }
                 // Lines: fast attack, moderate decay
                 if target > lineLevel {
                     lineLevel = lineLevel * 0.25 + target * 0.75
                 } else {
-                    lineLevel = lineLevel * 0.82 + target * 0.18
+                    lineLevel = lineLevel * 0.64 + target * 0.36
                 }
             }
         }
