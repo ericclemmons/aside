@@ -299,10 +299,47 @@ private struct HeightPreferenceKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
-// MARK: - Waveform banner (welcome step)
+// MARK: - Lightweight mic level monitor (no transcription)
+
+@MainActor
+private class MicLevelMonitor: ObservableObject {
+    @Published var audioLevel: Float = 0
+    private var engine: AVAudioEngine?
+
+    func start() {
+        guard engine == nil else { return }
+        let eng = AVAudioEngine()
+        let input = eng.inputNode
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0 else { return }
+        input.installTap(onBus: 0, bufferSize: 512, format: format) { [weak self] buf, _ in
+            guard let data = buf.floatChannelData?[0] else { return }
+            let n = Int(buf.frameLength)
+            var sum: Float = 0
+            for i in 0..<n { sum += data[i] * data[i] }
+            let rms = sqrtf(sum / Float(max(n, 1)))
+            let level = min(rms * 18, 1.0)
+            Task { @MainActor [weak self] in self?.audioLevel = level }
+        }
+        try? eng.start()
+        engine = eng
+    }
+
+    func stop() {
+        engine?.inputNode.removeTap(onBus: 0)
+        engine?.stop()
+        engine = nil
+        audioLevel = 0
+    }
+}
+
+// MARK: - Waveform banner (welcome / mic / speech steps)
 
 private struct SetupWaveformBanner: View {
+    var audioLevel: Float = 0
+
     @State private var phase: Double = 0
+    @State private var smoothedLevel: Double = 0
     @State private var animTimer: Timer?
 
     // Filled colour layers — amplitude fraction, frequency, phase speed, initial offset, opacity
@@ -334,6 +371,9 @@ private struct SetupWaveformBanner: View {
             let halfH = midY * 0.88
             let steps = 220
 
+            // Audio reactivity: smoothedLevel boosts amplitude (1× idle → ~3× at full volume)
+            let ampScale = 1.0 + smoothedLevel * 2.2
+
             // 1. Blurry colour fills
             for layer in colorLayers {
                 var top = [CGPoint](), bot = [CGPoint]()
@@ -343,7 +383,7 @@ private struct SetupWaveformBanner: View {
                     let n   = (t - 0.5) * 4.8
                     let env = exp(-n * n * 0.52)
                     let dy  = CGFloat(sin(t * .pi * 2 * layer.freq + phase * layer.speed + layer.offset)
-                                      * layer.amp * env) * halfH
+                                      * layer.amp * min(env * ampScale, 1.0)) * halfH
                     top.append(CGPoint(x: x, y: midY - dy))
                     bot.append(CGPoint(x: x, y: midY + dy))
                 }
@@ -371,7 +411,7 @@ private struct SetupWaveformBanner: View {
                     let n   = (t - 0.5) * 4.8
                     let env = exp(-n * n * 0.52)
                     let y   = midY - CGFloat(sin(t * .pi * 2 * line.freq + phase * line.speed + line.offset)
-                                             * line.amp * env) * halfH
+                                             * line.amp * min(env * ampScale, 1.0)) * halfH
                     if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
                     else       { path.addLine(to: CGPoint(x: x, y: y)) }
                 }
@@ -397,7 +437,11 @@ private struct SetupWaveformBanner: View {
 
     private func startAnimating() {
         animTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
-            Task { @MainActor in phase += 0.038 }
+            Task { @MainActor in
+                phase += 0.038
+                // Low-pass smooth toward current audioLevel
+                smoothedLevel = smoothedLevel * 0.72 + Double(audioLevel) * 0.28
+            }
         }
     }
 
@@ -417,6 +461,17 @@ struct SetupView: View {
     @FocusState private var tryInputFocused: Bool
     @State private var openCodeTab: OpenCodeTab = .desktop
     @State private var copiedKey: String? = nil
+    @StateObject private var micMonitor = MicLevelMonitor()
+
+    private var waveformSteps: Set<SetupStep> { [.microphone, .speechRecognition] }
+
+    private func updateMonitor() {
+        if waveformSteps.contains(state.currentStep) && state.micGranted {
+            micMonitor.start()
+        } else {
+            micMonitor.stop()
+        }
+    }
 
     var body: some View {
         Group {
@@ -434,6 +489,10 @@ struct SetupView: View {
             if h > 0 { state.contentHeight = h }
         }
         .animation(.easeInOut(duration: 0.3), value: state.currentStep)
+        .onAppear { updateMonitor() }
+        .onDisappear { micMonitor.stop() }
+        .onChange(of: state.currentStep) { updateMonitor() }
+        .onChange(of: state.micGranted)  { updateMonitor() }
     }
 
     // MARK: - OpenCode card layout (tabbed: Desktop / Web / CLI)
@@ -639,8 +698,8 @@ struct SetupView: View {
 
     private var standardLayout: some View {
         VStack(spacing: 0) {
-            if state.currentStep == .welcome {
-                SetupWaveformBanner()
+            if [.welcome, .microphone, .speechRecognition].contains(state.currentStep) {
+                SetupWaveformBanner(audioLevel: micMonitor.audioLevel)
                 Spacer(minLength: 28)
             } else if state.currentStep.usesKeyboardIllustration {
                 Spacer(minLength: 48)
