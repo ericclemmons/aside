@@ -541,12 +541,12 @@ struct SetupView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(height: 60)
-                    .padding(.bottom, 24)
+                    .padding(.bottom, 36)
             } else {
                 Text(state.currentStep.title)
                     .font(.system(size: 20, weight: .semibold))
                     .frame(height: 60)
-                    .padding(.bottom, 24)
+                    .padding(.bottom, 36)
             }
 
             // Tab picker
@@ -558,12 +558,15 @@ struct SetupView: View {
             .pickerStyle(.segmented)
             .padding(.horizontal, 20)
 
-            // Tab content — direct switch so @ViewBuilder images get proper width proposals
-            switch openCodeTab {
-            case .desktop: desktopTabContent
-            case .web:     webTabContent
-            case .cli:     cliTabContent
+            // Tab content
+            Group {
+                switch openCodeTab {
+                case .desktop: desktopTabContent
+                case .web:     webTabContent
+                case .cli:     cliTabContent
+                }
             }
+            .padding(.vertical, 8)
 
             openCodeCTAButton
                 .padding(.top, 16)

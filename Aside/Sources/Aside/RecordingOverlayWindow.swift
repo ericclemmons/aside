@@ -324,7 +324,7 @@ private struct DispatchPickerView: View {
 
             // Hints
             HStack(spacing: 12) {
-                hintLabel("return", "↵ send")
+                hintLabel("return", "send")
                 hintLabel("arrow.up.arrow.down", "navigate")
                 hintLabel("escape", "cancel")
             }
