@@ -356,19 +356,20 @@ private struct SetupWaveformBanner: View {
     // Plain var props on View structs are value-captured at onAppear and never update.
     @State private var currentAudioLevel: Float = 0
 
-    // Filled colour layers — amplitude fraction, frequency, phase speed, initial offset, opacity
+    // Filled colour layers — high freq gives dense ridges that look like a voice waveform
     private let colorLayers: [(amp: Double, freq: Double, speed: Double, offset: Double, opacity: Double)] = [
-        (0.70, 1.05, 0.60, 0.00,       0.55),
-        (0.55, 1.80, 1.00, .pi * 0.65, 0.45),
-        (0.80, 0.70, 0.40, .pi * 1.30, 0.35),
-        (0.45, 2.50, 1.50, .pi * 0.35, 0.40),
+        (0.75,  5.0, 0.60, 0.00,       0.42),
+        (0.60,  8.5, 1.00, .pi * 0.65, 0.35),
+        (0.80,  6.5, 0.40, .pi * 1.30, 0.28),
+        (0.50, 11.0, 1.50, .pi * 0.35, 0.35),
     ]
 
-    // White glow lines — amplitude fraction, frequency, phase speed, initial offset, base opacity
+    // White glow lines — very high freq for tight spiky ridges
     private let strokeLines: [(amp: Double, freq: Double, speed: Double, offset: Double, opacity: Double)] = [
-        (0.60, 1.40, 0.85, .pi * 0.20, 0.7),
-        (0.50, 2.10, 1.25, .pi * 1.10, 0.6),
-        (0.75, 0.90, 0.55, .pi * 1.80, 0.5),
+        (0.88, 13.0, 1.10, .pi * 0.20, 0.75),
+        (0.78, 18.0, 1.70, .pi * 1.10, 0.65),
+        (0.92,  9.5, 0.75, .pi * 1.80, 0.58),
+        (0.65, 22.0, 2.20, .pi * 0.90, 0.48),
     ]
 
     // Purple → indigo → teal → pink
