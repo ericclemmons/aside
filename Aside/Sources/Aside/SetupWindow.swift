@@ -404,10 +404,12 @@ private struct SetupWaveformBanner: View {
             for layer in colorLayers {
                 var top = [CGPoint](), bot = [CGPoint]()
                 for i in 0...steps {
-                    let t   = Double(i) / Double(steps)
-                    let x   = CGFloat(t) * size.width
-                    let n   = (t - 0.5) * 4.8
-                    let env = exp(-n * n * 0.52)
+                    let t        = Double(i) / Double(steps)
+                    let x        = CGFloat(t) * size.width
+                    let n        = (t - 0.5) * 4.8
+                    let gaussian = exp(-n * n * 0.52)
+                    // Lerp envelope toward flat as volume rises — edges open up at high input
+                    let env      = gaussian + (1.0 - gaussian) * smoothedLevel
                     let dy  = CGFloat(sin(t * .pi * 2 * layer.freq + phase * layer.speed + layer.offset)
                                       * layer.amp * min(env * ampScale, 1.0)) * halfH
                     top.append(CGPoint(x: x, y: midY - dy))
@@ -435,10 +437,12 @@ private struct SetupWaveformBanner: View {
                 let effectiveScale = lineAmpScale * (liveMode ? breathe : (0.5 + 0.5 * breathe))
                 var path = Path()
                 for j in 0...steps {
-                    let t   = Double(j) / Double(steps)
-                    let x   = CGFloat(t) * size.width
-                    let n   = (t - 0.5) * 4.8
-                    let env = exp(-n * n * 0.52)
+                    let t        = Double(j) / Double(steps)
+                    let x        = CGFloat(t) * size.width
+                    let n        = (t - 0.5) * 4.8
+                    let gaussian = exp(-n * n * 0.52)
+                    // Lines open fully to the edges at max volume
+                    let env      = gaussian + (1.0 - gaussian) * lineLevel
                     let y   = midY - CGFloat(sin(t * .pi * 2 * line.freq + phase * line.speed + line.offset)
                                              * line.amp * min(env * effectiveScale, 1.0)) * halfH
                     if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
