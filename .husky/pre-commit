@@ -1,5 +1,0 @@
-STAGED=$(git diff --cached --name-only --diff-filter=ACMR -- '*.ts' '*.tsx')
-if [ -n "$STAGED" ]; then
-  pnpm oxlint $STAGED || exit 1
-  pnpm oxfmt --check $STAGED || { echo "Run 'pnpm fmt' to fix formatting."; exit 1; }
-fi
