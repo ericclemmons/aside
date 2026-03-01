@@ -456,13 +456,13 @@ private struct SetupWaveformBanner: View {
     private func startAnimating() {
         animTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
             Task { @MainActor in
-                phase += 0.038
-                // Fast attack, slow decay — reacts instantly to voice, fades gracefully
+                // Waves scroll faster when audio is louder — feels alive
+                phase += 0.038 + smoothedLevel * 0.08
                 let target = Double(currentAudioLevel)
                 if target > smoothedLevel {
-                    smoothedLevel = smoothedLevel * 0.35 + target * 0.65  // ~4 frames to peak
+                    smoothedLevel = smoothedLevel * 0.15 + target * 0.85  // ~2 frames to peak
                 } else {
-                    smoothedLevel = smoothedLevel * 0.90 + target * 0.10  // ~20 frames to decay
+                    smoothedLevel = smoothedLevel * 0.80 + target * 0.20  // ~10 frames to decay
                 }
             }
         }
