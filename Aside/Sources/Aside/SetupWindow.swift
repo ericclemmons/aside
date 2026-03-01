@@ -518,20 +518,20 @@ struct SetupView: View {
 
     private var openCodeCard: some View {
         VStack(spacing: 0) {
-            // Wordmark replaces text title
+            // Wordmark — same vertical rhythm as icon steps in standardLayout
+            Spacer(minLength: 48)
             if let url = Bundle.module.url(forResource: "opencode.wordmark", withExtension: "svg"),
                let img = NSImage(contentsOf: url) {
                 Image(nsImage: img)
                     .resizable()
                     .scaledToFit()
-                    .frame(height: 30)
-                    .padding(.top, 32)
-                    .padding(.bottom, 12)
+                    .frame(height: 38)
+                    .padding(.bottom, 24)
             } else {
                 Text(state.currentStep.title)
                     .font(.system(size: 20, weight: .semibold))
-                    .padding(.top, 32)
-                    .padding(.bottom, 12)
+                    .frame(height: 60)
+                    .padding(.bottom, 24)
             }
 
             // Tab picker
