@@ -463,17 +463,17 @@ private struct SetupWaveformBanner: View {
             Task { @MainActor in
                 phase += 0.038 + smoothedLevel * 0.08
                 let target = Double(currentAudioLevel)
-                // Fills: gentle smoothing for flowing background swells
+                // Fills: smooth swells — medium attack, slow decay
                 if target > smoothedLevel {
-                    smoothedLevel = smoothedLevel * 0.15 + target * 0.85
+                    smoothedLevel = smoothedLevel * 0.40 + target * 0.60
                 } else {
-                    smoothedLevel = smoothedLevel * 0.80 + target * 0.20
+                    smoothedLevel = smoothedLevel * 0.93 + target * 0.07
                 }
-                // Lines: near-instant attack, faster decay — snaps to every voice transient
+                // Lines: quick ease-in, slow ease-out — responsive but no jitter
                 if target > lineLevel {
-                    lineLevel = lineLevel * 0.05 + target * 0.95
+                    lineLevel = lineLevel * 0.30 + target * 0.70
                 } else {
-                    lineLevel = lineLevel * 0.65 + target * 0.35
+                    lineLevel = lineLevel * 0.94 + target * 0.06
                 }
             }
         }
