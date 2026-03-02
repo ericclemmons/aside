@@ -265,35 +265,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     fileprivate func rebuildMenuItems(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        if let server = openCodeConfig.server {
-            // Connected state
-            let headerItem = NSMenuItem(title: "🟢 OpenCode Desktop", action: nil, keyEquivalent: "")
-            headerItem.isEnabled = false
-            menu.addItem(headerItem)
+        let statusColor: NSColor = openCodeConfig.server != nil ? .systemGreen : .systemRed
+        let statusConfig = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [statusColor]))
+        let headerItem = NSMenuItem(title: "OpenCode Desktop", action: #selector(openOpenCodeDesktop), keyEquivalent: "")
+        headerItem.target = self
+        headerItem.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(statusConfig)
+        menu.addItem(headerItem)
 
-            let webItem = NSMenuItem(title: "    Open Web...", action: #selector(openOpenCodeWeb), keyEquivalent: "")
-            webItem.target = self
-            menu.addItem(webItem)
-
-            let attachItem = NSMenuItem(title: "    Attach with CLI...", action: #selector(attachWithCLI), keyEquivalent: "")
+        if openCodeConfig.server != nil {
+            let attachItem = NSMenuItem()
+            attachItem.attributedTitle = NSAttributedString(
+                string: "opencode attach …",
+                attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)]
+            )
+            attachItem.action = #selector(attachWithCLI)
             attachItem.target = self
+            attachItem.image = NSImage(systemSymbolName: "keyboard", accessibilityDescription: nil)
             menu.addItem(attachItem)
-
-            // Show port for reference
-            let portItem = NSMenuItem(title: "    Port \(server.port)", action: nil, keyEquivalent: "")
-            portItem.isEnabled = false
-            menu.addItem(portItem)
-        } else {
-            // Disconnected state
-            let headerItem = NSMenuItem(title: "🔴 OpenCode Desktop (Not Running)", action: #selector(openOpenCodeDesktop), keyEquivalent: "")
-            headerItem.target = self
-            menu.addItem(headerItem)
         }
 
         menu.addItem(NSMenuItem.separator())
 
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
+        settingsItem.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
         menu.addItem(settingsItem)
 
         menu.addItem(NSMenuItem.separator())
@@ -301,6 +298,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
         let quitItem = NSMenuItem(title: "Quit Aside (v\(version))", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
+        quitItem.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
         menu.addItem(quitItem)
     }
 
@@ -568,10 +566,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Build destination list
         var destinations: [DispatchDestination] = []
 
+        // Collect unique directories from recent sessions, ordered by most recent
+        var seenDirs = Set<String>()
+        var newSessionDirs: [(display: String, full: String)] = []
+        for session in sessionManager.sessions {
+            guard let dir = session.directory, !seenDirs.contains(dir) else { continue }
+            seenDirs.insert(dir)
+            newSessionDirs.append((SessionManager.abbreviateHome(in: dir), dir))
+        }
+        // Always include the current project dir if not already covered
         let projectDir = sessionManager.currentProjectDirectory ?? home
-        let displayDir = SessionManager.abbreviateHome(in: projectDir)
+        if !seenDirs.contains(projectDir) {
+            newSessionDirs.insert((SessionManager.abbreviateHome(in: projectDir), projectDir), at: 0)
+        }
+
         destinations.append(.sectionHeader("New Session"))
-        destinations.append(.newOpenCodeWorkspace(displayDirectory: displayDir, workingDirectory: projectDir))
+        for dir in newSessionDirs {
+            destinations.append(.newOpenCodeWorkspace(displayDirectory: dir.display, workingDirectory: dir.full))
+        }
 
         // Add existing opencode sessions
         let recentSessions = Array(sessionManager.sessions.prefix(5))
@@ -620,7 +632,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        process.arguments = ["-Wo", tempPath]
+        process.arguments = ["-i", tempPath]
         process.terminationHandler = { [weak self] proc in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -688,8 +700,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openOpenCodeWeb() {
-        guard let server = openCodeConfig.server else { return }
-        NSWorkspace.shared.open(server.baseURL)
+        guard let server = openCodeConfig.server,
+              let url = URL(string: "http://\(server.username):\(server.password)@\(server.host):\(server.port)")
+        else { return }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func openOpenCodeDesktop() {
@@ -707,7 +721,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func attachWithCLI() {
         guard let server = openCodeConfig.server else { return }
         let command = "opencode attach \(server.attachTarget) -p \(server.password)\n"
-        typeText(command)
+        // Deactivate Aside so keystrokes go to the previously focused app
+        NSApp.hide(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.typeText(command)
+        }
     }
 
     // MARK: - Permissions

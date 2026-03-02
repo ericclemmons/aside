@@ -6,18 +6,59 @@ import Combine
 
 /// A destination the user can pick from the dispatch picker.
 struct DispatchDestination: Identifiable, Equatable {
+    enum Kind: Equatable {
+        case sectionHeader
+        case newSessionWorkspace
+        case existingSession
+    }
+
     let id: String
+    let kind: Kind
     let label: String
     let detail: String?
     let time: String?
     let sessionID: String?
+    let workingDirectory: String?
 
-    static func newOpenCode() -> DispatchDestination {
-        DispatchDestination(id: "opencode-new", label: "New Session", detail: nil, time: nil, sessionID: nil)
+    var isSelectable: Bool {
+        kind != .sectionHeader
+    }
+
+    static func sectionHeader(_ title: String) -> DispatchDestination {
+        DispatchDestination(
+            id: "header-\(title.lowercased().replacingOccurrences(of: " ", with: "-"))",
+            kind: .sectionHeader,
+            label: title,
+            detail: nil,
+            time: nil,
+            sessionID: nil,
+            workingDirectory: nil
+        )
+    }
+
+    static func newOpenCodeWorkspace(displayDirectory: String, workingDirectory: String) -> DispatchDestination {
+        DispatchDestination(
+            id: "opencode-new-\(workingDirectory)",
+            kind: .newSessionWorkspace,
+            label: "New Session in \(displayDirectory)",
+            detail: nil,
+            time: nil,
+            sessionID: nil,
+            workingDirectory: workingDirectory
+        )
     }
 
     static func openCodeSession(_ session: Session) -> DispatchDestination {
-        DispatchDestination(id: "opencode-\(session.id)", label: session.name, detail: nil, time: session.timeString, sessionID: session.id)
+        let displayDirectory = session.directory.map { SessionManager.abbreviateHome(in: $0) }
+        return DispatchDestination(
+            id: "opencode-\(session.id)",
+            kind: .existingSession,
+            label: session.name,
+            detail: displayDirectory,
+            time: session.timeString,
+            sessionID: session.id,
+            workingDirectory: nil
+        )
     }
 }
 
@@ -76,7 +117,7 @@ class OverlayState: ObservableObject {
 
     func showPicker(destinations: [DispatchDestination], prompt: String, onPicked: @escaping (DispatchDestination, String) -> Void) {
         self.destinations = destinations
-        self.selectedIndex = 0
+        self.selectedIndex = destinations.firstIndex(where: { $0.isSelectable }) ?? 0
         self.editablePrompt = prompt
         self.onDestinationPicked = onPicked
         self.mode = .picker
@@ -84,11 +125,21 @@ class OverlayState: ObservableObject {
 
     func moveSelection(by delta: Int) {
         guard !destinations.isEmpty else { return }
-        selectedIndex = (selectedIndex + delta + destinations.count) % destinations.count
+        guard destinations.contains(where: { $0.isSelectable }) else { return }
+
+        var next = selectedIndex
+        for _ in 0..<destinations.count {
+            next = (next + delta + destinations.count) % destinations.count
+            if destinations[next].isSelectable {
+                selectedIndex = next
+                return
+            }
+        }
     }
 
     func confirmSelection() {
         guard destinations.indices.contains(selectedIndex) else { return }
+        guard destinations[selectedIndex].isSelectable else { return }
         onDestinationPicked?(destinations[selectedIndex], editablePrompt)
     }
 
@@ -205,7 +256,18 @@ class RecordingOverlayWindow: NSPanel {
             // Escape: cancel
             if event.keyCode == 53 {
                 Task { @MainActor in
-                    state.onDestinationPicked?(DispatchDestination(id: "cancel", label: "", detail: nil, time: nil, sessionID: nil), "")
+                    state.onDestinationPicked?(
+                        DispatchDestination(
+                            id: "cancel",
+                            kind: .sectionHeader,
+                            label: "",
+                            detail: nil,
+                            time: nil,
+                            sessionID: nil,
+                            workingDirectory: nil
+                        ),
+                        ""
+                    )
                 }
                 return nil
             }
@@ -307,9 +369,10 @@ private struct DispatchPickerView: View {
                 ForEach(Array(state.destinations.enumerated()), id: \.element.id) { index, dest in
                     DestinationRow(
                         destination: dest,
-                        isSelected: index == state.selectedIndex
+                        isSelected: dest.isSelectable && index == state.selectedIndex
                     )
                     .onTapGesture {
+                        guard dest.isSelectable else { return }
                         state.selectedIndex = index
                         state.confirmSelection()
                     }
@@ -359,15 +422,17 @@ private struct DestinationRow: View {
     let isSelected: Bool
 
     var body: some View {
+        if destination.kind == .sectionHeader {
+            Text(destination.label)
+                .font(.system(size: 10, weight: .semibold))
+                .textCase(.uppercase)
+                .foregroundStyle(.white.opacity(0.4))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
+                .padding(.bottom, 3)
+        } else {
         HStack(spacing: 8) {
-            if let time = destination.time {
-                Text(time)
-                    .font(.system(size: 10))
-                    .foregroundStyle(isSelected ? .white.opacity(0.5) : .white.opacity(0.3))
-                    .monospacedDigit()
-                    .frame(width: 52, alignment: .leading)
-            }
-
             Group {
                 if let url = Bundle.module.url(forResource: "opencode.logo", withExtension: "svg"),
                    let img = NSImage(contentsOf: url) {
@@ -383,12 +448,31 @@ private struct DestinationRow: View {
             .foregroundStyle(isSelected ? .white : .white.opacity(0.5))
             .frame(width: 13, height: 16)
 
-            Text(destination.label)
-                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? .white : .white.opacity(0.8))
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(destination.label)
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? .white : .white.opacity(0.8))
+                    .lineLimit(1)
 
-            Spacer()
+                if let detail = destination.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(isSelected ? 0.45 : 0.3))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            Spacer(minLength: 6)
+
+            if let time = destination.time {
+                Text(time)
+                    .font(.system(size: 10))
+                    .foregroundStyle(isSelected ? .white.opacity(0.5) : .white.opacity(0.3))
+                    .monospacedDigit()
+                    .frame(width: 52, alignment: .trailing)
+            }
+
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
@@ -397,5 +481,6 @@ private struct DestinationRow: View {
                 .fill(isSelected ? .white.opacity(0.12) : .clear)
         )
         .contentShape(Rectangle())
+        }
     }
 }
