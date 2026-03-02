@@ -51,9 +51,11 @@ class SetupState: ObservableObject {
         // Don't use validateScreenCapture() here — it runs screencapture which triggers a TCC prompt.
         // CGPreflightScreenCaptureAccess() is non-prompting. False positives from stale grants are
         // handled by validateScreenCapture() when the user clicks the button on that step.
-        screenRecordingGranted = CGPreflightScreenCaptureAccess()
+        let preflightResult = CGPreflightScreenCaptureAccess()
+        NSLog("[Setup] checkPermissions: CGPreflightScreenCaptureAccess() = \(preflightResult)")
+        screenRecordingGranted = preflightResult
         accessibilityGranted = Self.canAccessibilityWork()
-        print("[Setup] Permissions — mic: \(micGranted), speech: \(speechGranted), screenRecording: \(screenRecordingGranted), accessibility: \(accessibilityGranted)")
+        NSLog("[Setup] Permissions — mic: \(micGranted), speech: \(speechGranted), screenRecording: \(screenRecordingGranted), accessibility: \(accessibilityGranted)")
     }
 
     /// Check screen recording via CGPreflightScreenCaptureAccess.
@@ -90,11 +92,13 @@ class SetupState: ObservableObject {
     }
 
     func advance() {
+        NSLog("[Setup] advance() called from step: \(currentStep)")
         guard let currentIndex = SetupStep.allCases.firstIndex(of: currentStep) else { return }
         let nextIndex = SetupStep.allCases.index(after: currentIndex)
 
         // Past the last step — setup complete
         guard nextIndex < SetupStep.allCases.endIndex else {
+            NSLog("[Setup] advance() → all steps complete")
             onComplete?()
             return
         }
@@ -104,18 +108,22 @@ class SetupState: ObservableObject {
         // Skip permission steps that are already granted
         switch next {
         case .microphone where micGranted:
+            NSLog("[Setup] advance() → skipping microphone (already granted)")
             currentStep = next
             advance()
             return
         case .speechRecognition where speechGranted:
+            NSLog("[Setup] advance() → skipping speechRecognition (already granted)")
             currentStep = next
             advance()
             return
         case .screenRecording where screenRecordingGranted:
+            NSLog("[Setup] advance() → skipping screenRecording (screenRecordingGranted=true)")
             currentStep = next
             advance()
             return
         case .accessibility where accessibilityGranted:
+            NSLog("[Setup] advance() → skipping accessibility (already granted)")
             currentStep = next
             advance()
             return
@@ -127,6 +135,7 @@ class SetupState: ObservableObject {
             break
         }
 
+        NSLog("[Setup] advance() → moving to step: \(next)")
         currentStep = next
 
         // Bring setup window back to front after permission dialogs
@@ -168,12 +177,13 @@ class SetupState: ObservableObject {
         case .screenRecording:
             // Validate by running a silent screencapture
             let granted = validateScreenCapture()
+            NSLog("[Setup] screenRecording: validateScreenCapture() = \(granted)")
             screenRecordingGranted = granted
             if granted {
+                NSLog("[Setup] screenRecording: granted, advancing")
                 advance()
             } else {
-                // Clear stale TCC entry so the user sees a clean slate in System Preferences
-                Self.resetTCCEntry("ScreenCapture")
+                NSLog("[Setup] screenRecording: NOT granted, opening settings + polling")
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
                 startPermissionPolling()
             }
@@ -218,7 +228,7 @@ class SetupState: ObservableObject {
         do {
             try process.run()
         } catch {
-            print("[Setup] screencapture prompt failed: \(error)")
+            NSLog("[Setup] screencapture prompt failed: \(error)")
         }
     }
 
@@ -236,12 +246,17 @@ class SetupState: ObservableObject {
 
         do {
             try process.run()
+            NSLog("[Setup] validateScreenCapture: screencapture started (pid \(process.processIdentifier))")
             process.waitUntilExit()
+            NSLog("[Setup] validateScreenCapture: screencapture exited with status \(process.terminationStatus)")
         } catch {
+            NSLog("[Setup] validateScreenCapture: failed to run screencapture: \(error)")
             return false
         }
 
         let exists = FileManager.default.fileExists(atPath: testPath)
+        let size = (try? FileManager.default.attributesOfItem(atPath: testPath)[.size] as? Int) ?? 0
+        NSLog("[Setup] validateScreenCapture: file exists=\(exists), size=\(size)")
         try? FileManager.default.removeItem(atPath: testPath)
         return exists
     }
@@ -250,6 +265,7 @@ class SetupState: ObservableObject {
     @Published var isPollingPermission = false
 
     private func startPermissionPolling() {
+        NSLog("[Setup] startPermissionPolling() for step: \(currentStep)")
         isPollingPermission = true
         permissionTimer?.invalidate()
         // Screen recording check spawns a process, so poll less frequently
@@ -267,6 +283,7 @@ class SetupState: ObservableObject {
                     self.speechGranted = granted
                 case .screenRecording:
                     granted = self.validateScreenCapture()
+                    NSLog("[Setup] polling screenRecording: validateScreenCapture() = \(granted)")
                     self.screenRecordingGranted = granted
                 case .accessibility:
                     granted = Self.canAccessibilityWork()
