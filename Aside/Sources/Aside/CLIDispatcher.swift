@@ -1,14 +1,15 @@
 import Foundation
 
-/// Dispatches transcribed prompts to OpenCode CLI.
+/// Dispatches transcribed prompts to OpenCode via its HTTP API.
 struct CLIDispatcher {
 
     /// Dispatch a prompt to OpenCode.
     /// - Parameters:
     ///   - prompt: The assembled prompt string (with context).
     ///   - server: The discovered OpenCode Desktop server to attach to.
-    ///   - sessionID: Optional opencode session ID to attach to.
-    ///   - filePaths: Optional file paths to attach with `-f`.
+    ///   - sessionID: Optional opencode session ID. If nil, creates a new session.
+    ///   - filePaths: Optional file paths (screenshots) to attach.
+    ///   - workingDirectory: Working directory for new sessions.
     static func dispatch(
         prompt: String,
         server: DiscoveredServer,
@@ -16,68 +17,80 @@ struct CLIDispatcher {
         filePaths: [String] = [],
         workingDirectory: String? = nil
     ) {
-        let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
-        let opencodePath = "\(home)/.opencode/bin/opencode"
-
-        // Pipe prompt via stdin; `run` subcommand first, then flags
-        var cmd = "echo \(shellQuote(prompt)) | \(opencodePath) run"
-        cmd += " --attach \(server.attachTarget)"
-        if let sessionID, !sessionID.isEmpty {
-            cmd += " --session \(shellQuote(sessionID))"
-        }
-        for path in filePaths {
-            cmd += " --file=\(shellQuote(path))"
-        }
-
-        NSLog("[Dispatch] %@", String(cmd.prefix(300)))
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", cmd]
-
-        if let workingDirectory, !workingDirectory.isEmpty {
-            let expandedDirectory = (workingDirectory as NSString).expandingTildeInPath
-            var isDirectory: ObjCBool = false
-            if FileManager.default.fileExists(atPath: expandedDirectory, isDirectory: &isDirectory), isDirectory.boolValue {
-                process.currentDirectoryURL = URL(fileURLWithPath: expandedDirectory)
-            }
-        }
-
-        // Inherit user's shell environment for PATH, add auth credentials
-        var env = ProcessInfo.processInfo.environment
-        if let path = env["PATH"] {
-            env["PATH"] = "\(home)/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:\(path)"
-        }
-        env["OPENCODE_SERVER_USERNAME"] = server.username
-        env["OPENCODE_SERVER_PASSWORD"] = server.password
-        process.environment = env
-
-        // Capture stderr to log errors
-        let errPipe = Pipe()
-        process.standardError = errPipe
-
-        do {
-            try process.run()
-            NSLog("[Dispatch] opencode spawned PID: %d", process.processIdentifier)
-
-            // Log stderr asynchronously
-            errPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
-                    handle.readabilityHandler = nil
-                    return
+        Task.detached(priority: .userInitiated) {
+            do {
+                // Resolve session ID — create one if needed
+                let resolvedID: String
+                if let sessionID, !sessionID.isEmpty {
+                    resolvedID = sessionID
+                } else {
+                    resolvedID = try await createSession(server: server)
+                    NSLog("[Dispatch] Created session: %@", resolvedID)
                 }
-                if let str = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !str.isEmpty {
-                    NSLog("[Dispatch] stderr: %@", str)
+
+                // Build parts array
+                var parts: [[String: Any]] = [
+                    ["type": "text", "text": prompt]
+                ]
+
+                // Attach screenshots as file parts with data URIs
+                for path in filePaths {
+                    guard let data = FileManager.default.contents(atPath: path) else { continue }
+                    let base64 = data.base64EncodedString()
+                    let mime = path.hasSuffix(".png") ? "image/png" : "image/jpeg"
+                    let filename = (path as NSString).lastPathComponent
+                    parts.append([
+                        "type": "file",
+                        "mime": mime,
+                        "filename": filename,
+                        "url": "data:\(mime);base64,\(base64)"
+                    ])
                 }
+
+                let body: [String: Any] = ["parts": parts]
+
+                // POST /session/:id/prompt_async
+                var request = server.authenticatedRequest(path: "/session/\(resolvedID)/prompt_async")
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                NSLog("[Dispatch] prompt_async → %d (session: %@, files: %d)", status, resolvedID, filePaths.count)
+
+                if status != 204 {
+                    NSLog("[Dispatch] Unexpected status: %d", status)
+                }
+            } catch {
+                NSLog("[Dispatch] Failed: %@", error.localizedDescription)
             }
-        } catch {
-            NSLog("[Dispatch] Failed to spawn opencode: %@", error.localizedDescription)
         }
     }
 
-    /// Single-quote a string for safe shell interpolation.
-    private static func shellQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    /// Create a new session on the OpenCode server.
+    private static func createSession(server: DiscoveredServer) async throws -> String {
+        var request = server.authenticatedRequest(path: "/session")
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [:] as [String: Any])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200,
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let id = json["id"] as? String else {
+            throw DispatchError.sessionCreateFailed(status: status)
+        }
+        return id
+    }
+
+    enum DispatchError: Error, LocalizedError {
+        case sessionCreateFailed(status: Int)
+        var errorDescription: String? {
+            switch self {
+            case .sessionCreateFailed(let status): return "Failed to create session (HTTP \(status))"
+            }
+        }
     }
 }

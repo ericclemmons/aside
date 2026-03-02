@@ -720,11 +720,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func attachWithCLI() {
         guard let server = openCodeConfig.server else { return }
-        let command = "opencode attach \(server.attachTarget) -p \(server.password)\n"
+        let command = "opencode attach \(server.attachTarget) -p \(server.password)"
+        // Copy to pasteboard instead of typing — typeText can mangle UUIDs
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
         // Deactivate Aside so keystrokes go to the previously focused app
         NSApp.hide(nil)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            self?.typeText(command)
+            // Paste (Cmd+V) then Enter
+            self?.pasteAndEnter()
+        }
+    }
+
+    private func pasteAndEnter() {
+        let source = CGEventSource(stateID: .combinedSessionState)
+        // Cmd+V
+        let vDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true) // 9 = V
+        let vUp = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false)
+        vDown?.flags = .maskCommand
+        vUp?.flags = .maskCommand
+        vDown?.post(tap: .cgAnnotatedSessionEventTap)
+        vUp?.post(tap: .cgAnnotatedSessionEventTap)
+        // Enter after a tiny delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            let source = CGEventSource(stateID: .combinedSessionState)
+            let enterDown = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: true)
+            let enterUp = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: false)
+            enterDown?.post(tap: .cgAnnotatedSessionEventTap)
+            enterUp?.post(tap: .cgAnnotatedSessionEventTap)
         }
     }
 
