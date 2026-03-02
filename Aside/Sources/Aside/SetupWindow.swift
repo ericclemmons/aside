@@ -48,7 +48,10 @@ class SetupState: ObservableObject {
     func checkPermissions() {
         micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         speechGranted = SFSpeechRecognizer.authorizationStatus() == .authorized
-        screenRecordingGranted = validateScreenCapture()
+        // Don't use validateScreenCapture() here — it runs screencapture which triggers a TCC prompt.
+        // CGPreflightScreenCaptureAccess() is non-prompting. False positives from stale grants are
+        // handled by validateScreenCapture() when the user clicks the button on that step.
+        screenRecordingGranted = CGPreflightScreenCaptureAccess()
         accessibilityGranted = Self.canAccessibilityWork()
         print("[Setup] Permissions — mic: \(micGranted), speech: \(speechGranted), screenRecording: \(screenRecordingGranted), accessibility: \(accessibilityGranted)")
     }
