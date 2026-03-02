@@ -104,7 +104,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let whisperModelManager = WhisperModelManager()
     let historyManager = TranscriptionHistoryManager()
     let customWordsManager = CustomWordsManager()
-    let sessionManager = SessionManager()
+    let openCodeConfig = OpenCodeConfig()
+    lazy var sessionManager = SessionManager(config: openCodeConfig)
 
     private let hotkeyManager = HotkeyManager()
     private let overlayWindow = RecordingOverlayWindow()
@@ -115,8 +116,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindowController: NSWindowController?
     private var setupController: SetupWindowController?
     private var appObserverTokens: [Any] = []
-    private var openCodeServerItem: NSMenuItem?
-    private var serverStatusTimer: Timer?
+    private var discoveryTimer: Timer?
 
     /// The context captured when recording starts.
     private var capturedContext: ActiveContext?
@@ -188,13 +188,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             enhancer = TextEnhancer()
         }
 
-        startOpenCodeServer()
+        openCodeConfig.discover()
         overlayWindow.observe(state: overlayState)
         setupMenuBar()
 
         // Show setup window to walk through permissions
         setupController = SetupWindowController()
         setupController?.show(
+            openCodeConfig: openCodeConfig,
             onSetupHotkey: { [weak self] _ in
                 guard let self else { return }
                 if !self.hotkeyManager.isRunning {
@@ -248,23 +249,46 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func buildMenu() {
         let menu = NSMenu()
+        menu.delegate = self
+        statusItem?.menu = menu
 
-        // OpenCode server toggle
-        let serverItem = NSMenuItem(title: "", action: #selector(toggleOpenCodeServer), keyEquivalent: "")
-        serverItem.target = self
-        openCodeServerItem = serverItem
-        menu.addItem(serverItem)
-        refreshServerMenuItem()
+        // Discover periodically
+        discoveryTimer?.invalidate()
+        discoveryTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.openCodeConfig.discover()
+            }
+        }
+    }
 
-        menu.addItem(NSMenuItem.separator())
+    /// Rebuild menu items on every open — reflects live connection state.
+    fileprivate func rebuildMenuItems(_ menu: NSMenu) {
+        menu.removeAllItems()
 
-        let webItem = NSMenuItem(title: "Open OpenCode Web...", action: #selector(openOpenCodeWeb), keyEquivalent: "")
-        webItem.target = self
-        menu.addItem(webItem)
+        if let server = openCodeConfig.server {
+            // Connected state
+            let headerItem = NSMenuItem(title: "🟢 OpenCode Desktop", action: nil, keyEquivalent: "")
+            headerItem.isEnabled = false
+            menu.addItem(headerItem)
 
-        let desktopItem = NSMenuItem(title: "Open OpenCode Desktop...", action: #selector(openOpenCodeDesktop), keyEquivalent: "")
-        desktopItem.target = self
-        menu.addItem(desktopItem)
+            let webItem = NSMenuItem(title: "    Open Web...", action: #selector(openOpenCodeWeb), keyEquivalent: "")
+            webItem.target = self
+            menu.addItem(webItem)
+
+            let attachItem = NSMenuItem(title: "    Attach with CLI...", action: #selector(attachWithCLI), keyEquivalent: "")
+            attachItem.target = self
+            menu.addItem(attachItem)
+
+            // Show port for reference
+            let portItem = NSMenuItem(title: "    Port \(server.port)", action: nil, keyEquivalent: "")
+            portItem.isEnabled = false
+            menu.addItem(portItem)
+        } else {
+            // Disconnected state
+            let headerItem = NSMenuItem(title: "🔴 OpenCode Desktop (Not Running)", action: #selector(openOpenCodeDesktop), keyEquivalent: "")
+            headerItem.target = self
+            menu.addItem(headerItem)
+        }
 
         menu.addItem(NSMenuItem.separator())
 
@@ -273,16 +297,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(settingsItem)
 
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit Aside", action: #selector(quit), keyEquivalent: "q"))
-        statusItem?.menu = menu
 
-        // Refresh server status periodically
-        serverStatusTimer?.invalidate()
-        serverStatusTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.refreshServerMenuItem()
-            }
-        }
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let quitItem = NSMenuItem(title: "Quit Aside (v\(version))", action: #selector(quit), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
     }
 
     @objc private func openSettings() {
@@ -530,6 +549,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Toggle: Dispatch picker
 
     private func showDispatchPicker(text: String) {
+        guard let server = openCodeConfig.server else {
+            print("[Dispatch] No OpenCode Desktop server found, skipping dispatch")
+            finishSession()
+            return
+        }
+
         let context = capturedContext
         let prompt = PromptBuilder.buildPrompt(transcription: text, context: context)
         let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
@@ -576,6 +601,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.screenshotPaths = []  // clear so finishSession doesn't delete
             CLIDispatcher.dispatch(
                 prompt: finalPrompt,
+                server: server,
                 sessionID: picked.sessionID,
                 filePaths: paths,
                 workingDirectory: picked.workingDirectory
@@ -661,86 +687,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("[Recording] finishSession done")
     }
 
-    // MARK: - OpenCode server
-
-    private func startOpenCodeServer() {
-        if isOpenCodeServerListening() {
-            print("[OpenCode] serve already listening on \(OpenCodeConfig.attachTarget)")
-            return
-        }
-
-        let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
-        let opencodePath = "\(home)/.opencode/bin/opencode"
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: opencodePath)
-        process.arguments = ["serve", "--port", "\(OpenCodeConfig.port)"]
-        process.currentDirectoryURL = URL(fileURLWithPath: home)
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-
-        // Inherit PATH so opencode can find its dependencies
-        var env = ProcessInfo.processInfo.environment
-        if let path = env["PATH"] {
-            env["PATH"] = "\(home)/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:\(path)"
-        }
-        process.environment = env
-
-        do {
-            try process.run()
-            print("[OpenCode] serve started PID: \(process.processIdentifier)")
-        } catch {
-            print("[OpenCode] serve failed (may already be running): \(error)")
-        }
-    }
-
-    private func stopOpenCodeServer() {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        process.arguments = ["-nP", "-a", "-c", "opencode", "-iTCP:\(OpenCodeConfig.port)", "-sTCP:LISTEN", "-t"]
-
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            let pids = String(decoding: data, as: UTF8.self)
-                .split(whereSeparator: \.isNewline)
-                .compactMap { Int32($0) }
-            for pid in pids {
-                kill(pid, SIGTERM)
-                print("[OpenCode] sent SIGTERM to PID \(pid)")
-            }
-        } catch {
-            print("[OpenCode] stopOpenCodeServer failed: \(error)")
-        }
-    }
-
-    @objc private func toggleOpenCodeServer() {
-        if isOpenCodeServerListening() {
-            stopOpenCodeServer()
-        } else {
-            startOpenCodeServer()
-        }
-        // Delay refresh slightly so the process has time to start/stop
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.refreshServerMenuItem()
-        }
-    }
-
-    private func refreshServerMenuItem() {
-        let running = isOpenCodeServerListening()
-        let emoji = running ? "🟢" : "🔴"
-        openCodeServerItem?.title = "\(emoji) opencode serve \(OpenCodeConfig.attachTarget)"
-    }
-
     @objc private func openOpenCodeWeb() {
-        if let url = OpenCodeConfig.serverURL {
-            NSWorkspace.shared.open(url)
-        }
+        guard let server = openCodeConfig.server else { return }
+        NSWorkspace.shared.open(server.baseURL)
     }
 
     @objc private func openOpenCodeDesktop() {
@@ -748,7 +697,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if FileManager.default.fileExists(atPath: appURL.path) {
             NSWorkspace.shared.open(appURL)
         } else {
-            // Fallback to open -a
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
             process.arguments = ["-a", "OpenCode"]
@@ -756,34 +704,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func isOpenCodeServerListening() -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        process.arguments = ["-nP", "-a", "-c", "opencode", "-iTCP:\(OpenCodeConfig.port)", "-sTCP:LISTEN", "-t"]
-
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            guard process.terminationStatus == 0 else { return false }
-            let listeners = String(decoding: data, as: UTF8.self)
-                .split(whereSeparator: \.isNewline)
-            return !listeners.isEmpty
-        } catch {
-            return false
-        }
+    @objc private func attachWithCLI() {
+        guard let server = openCodeConfig.server else { return }
+        let command = "opencode attach \(server.attachTarget) -p \(server.password)\n"
+        typeText(command)
     }
 
     // MARK: - Permissions
 
     @objc private func quit() {
         hotkeyManager.stop()
-        serverStatusTimer?.invalidate()
-        serverStatusTimer = nil
+        discoveryTimer?.invalidate()
+        discoveryTimer = nil
         for token in appObserverTokens {
             NotificationCenter.default.removeObserver(token)
         }
@@ -791,4 +723,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
+}
+
+// MARK: - NSMenuDelegate
+
+extension AppDelegate: NSMenuDelegate {
+    func menuWillOpen(_ menu: NSMenu) {
+        rebuildMenuItems(menu)
+    }
 }

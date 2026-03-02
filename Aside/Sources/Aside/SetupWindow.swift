@@ -28,7 +28,7 @@ class SetupState: ObservableObject {
     @Published var accessibilityGranted = false
     @Published var tryInput: String = ""
     @Published var tryDispatchTested: Bool = false
-    @Published var openCodeOpened: Bool = false
+    var openCodeConfig: OpenCodeConfig?
 
     @Published var contentHeight: CGFloat = 0
     var onComplete: (() -> Void)?
@@ -51,24 +51,6 @@ class SetupState: ObservableObject {
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
         accessibilityGranted = AXIsProcessTrustedWithOptions(nil)
         print("[Setup] Permissions — mic: \(micGranted), speech: \(speechGranted), screenRecording: \(screenRecordingGranted), accessibility: \(accessibilityGranted)")
-
-        // Clear stale TCC entries from previous builds so the fresh binary
-        // can re-request permissions cleanly.
-        if !micGranted { resetTCC("Microphone") }
-        if !speechGranted { resetTCC("SpeechRecognition") }
-        if !screenRecordingGranted { resetTCC("ScreenCapture") }
-        if !accessibilityGranted { resetTCC("Accessibility") }
-    }
-
-    private func resetTCC(_ service: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-        process.arguments = ["reset", service, "com.aside.app"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try? process.run()
-        process.waitUntilExit()
-        print("[Setup] Reset TCC for \(service)")
     }
 
     func advance() {
@@ -154,7 +136,14 @@ class SetupState: ObservableObject {
             if granted {
                 advance()
             } else {
-                CGRequestScreenCaptureAccess()
+                // Reset stale TCC entry so the system re-prompts cleanly
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+                proc.arguments = ["reset", "ScreenCapture", Bundle.main.bundleIdentifier ?? "com.aside.app"]
+                try? proc.run()
+                proc.waitUntilExit()
+                // Open System Preferences to Screen Recording pane
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
                 startPermissionPolling()
             }
         case .accessibility:
@@ -171,18 +160,7 @@ class SetupState: ObservableObject {
             // "Skip" button
             advance()
         case .openCodeSetup:
-            if openCodeOpened {
-                advance()
-            } else {
-                // Try to open the OpenCode Desktop app
-                let opened = NSWorkspace.shared.open(URL(string: "opencode://")!)
-                    || NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/OpenCode.app"))
-                if !opened {
-                    // Fallback: open the web download page
-                    NSWorkspace.shared.open(URL(string: "https://opencode.ai")!)
-                }
-                openCodeOpened = true
-            }
+            advance()
         case .tryTapToDispatch:
             // Final step — close setup and start using
             onComplete?()
@@ -225,7 +203,9 @@ class SetupState: ObservableObject {
             }
         }
     }
+
 }
+
 
 // MARK: - Collection safe subscript
 
@@ -434,16 +414,9 @@ struct WaveformBanner: View {
 
 // MARK: - Setup View
 
-private enum OpenCodeTab: String, CaseIterable {
-    case desktop = "Desktop"
-    case web     = "Web"
-    case cli     = "CLI"
-}
-
 struct SetupView: View {
     @ObservedObject var state: SetupState
     @FocusState private var tryInputFocused: Bool
-    @State private var openCodeTab: OpenCodeTab = .desktop
     @State private var copiedKey: String? = nil
     @StateObject private var micMonitor = MicLevelMonitor()
 
@@ -482,6 +455,8 @@ struct SetupView: View {
         .onDisappear { micMonitor.stop() }
         .onChange(of: state.currentStep) { updateMonitor() }
         .onChange(of: state.micGranted)  { updateMonitor() }
+        .environment(\.colorScheme, .dark)
+        .preferredColorScheme(.dark)
     }
 
     // MARK: - Welcome card
@@ -609,7 +584,7 @@ struct SetupView: View {
                 .foregroundStyle(Color.accentColor)
                 .frame(height: 60)
                 .padding(.bottom, 24)
-            Text("Screen Recording")
+            Text("Screenshots")
                 .font(.system(size: 20, weight: .semibold))
                 .padding(.bottom, 12)
             Text("Aside can capture screenshots while you speak, attaching them to your prompt.")
@@ -625,7 +600,7 @@ struct SetupView: View {
             }
             permissionPollingIndicator
             Button(action: { state.requestCurrentPermission() }) {
-                Text(state.screenRecordingGranted ? "Continue" : "Allow Screen Recording")
+                Text(state.screenRecordingGranted ? "Continue" : "Allow Screenshots")
                     .font(.system(size: 13, weight: .medium))
                     .frame(minWidth: 200)
             }
@@ -677,7 +652,7 @@ struct SetupView: View {
         }
     }
 
-    // MARK: - OpenCode card (tabbed: Desktop / Web / CLI)
+    // MARK: - OpenCode card
 
     private var openCodeCard: some View {
         VStack(spacing: 0) {
@@ -690,30 +665,59 @@ struct SetupView: View {
                     .frame(height: 60)
                     .padding(.bottom, 36)
             } else {
-                Text("Setup OpenCode")
+                Text("OpenCode Desktop")
                     .font(.system(size: 20, weight: .semibold))
                     .frame(height: 60)
                     .padding(.bottom, 36)
             }
 
-            // Tab picker
-            Picker("", selection: $openCodeTab) {
-                ForEach(OpenCodeTab.allCases, id: \.self) { tab in
-                    Text(tab.rawValue).tag(tab)
+            Text("Aside requires OpenCode Desktop to sync sessions. You can still use the OpenCode CLI independently.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 340)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 16)
+
+            // Live connection status
+            HStack(spacing: 8) {
+                if let server = state.openCodeConfig?.server {
+                    Label("Connected on port \(server.port)", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.green)
+                } else {
+                    Label("Not connected", systemImage: "circle")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
                 }
             }
-            .pickerStyle(.segmented)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .padding(.horizontal, 8)
+            .background(Color(nsColor: .windowBackgroundColor).opacity(0.35))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .padding(.horizontal, 20)
 
-            // Tab content
-            Group {
-                switch openCodeTab {
-                case .desktop: desktopTabContent
-                case .web:     webTabContent
-                case .cli:     cliTabContent
+            if state.openCodeConfig?.server == nil {
+                Button(action: {
+                    let appURL = URL(fileURLWithPath: "/Applications/OpenCode.app")
+                    if FileManager.default.fileExists(atPath: appURL.path) {
+                        NSWorkspace.shared.open(appURL)
+                    } else {
+                        let process = Process()
+                        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+                        process.arguments = ["-a", "OpenCode"]
+                        try? process.run()
+                    }
+                }) {
+                    Text("Open OpenCode Desktop")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(minWidth: 200)
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .padding(.top, 12)
             }
-            .padding(.vertical, 8)
 
             Button(action: { state.advance() }) {
                 Text("Continue")
@@ -723,61 +727,12 @@ struct SetupView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .keyboardShortcut(.defaultAction)
-            .padding(.top, 16)
+            .padding(.top, 12)
 
             progressDots
                 .padding(.top, 16)
                 .padding(.bottom, 24)
         }
-    }
-
-    @ViewBuilder
-    private var desktopTabContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            openButtonStepRow(number: 1, label: "OpenCode Desktop") {
-                let _ = NSWorkspace.shared.open(URL(string: "opencode://")!)
-                    || NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/OpenCode.app"))
-                state.openCodeOpened = true
-            }
-            stepRow(number: 2, text: "Click Status in the top-right")
-            addServerStepRow(number: 3, key: "serverURL", showExternalLink: false)
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-    }
-
-    @ViewBuilder
-    private var webTabContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            openButtonStepRow(number: 1, label: "http://localhost:4096") {
-                NSWorkspace.shared.open(URL(string: "http://localhost:4096")!)
-            }
-            stepRow(number: 2, text: "Click Status in the top-right")
-            addServerStepRow(number: 3, key: "serverURLWeb", showExternalLink: false)
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-    }
-
-    @ViewBuilder
-    private var cliTabContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("To share sessions with Aside, launch OpenCode with:")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 0) {
-                Text("opencode --attach localhost:4096")
-                    .font(.system(size: 12, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                clipboardButton("opencode --attach localhost:4096", key: "cliCmd", size: 12)
-            }
-            .padding(10)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
     }
 
     // MARK: - Hold-to-Type card
@@ -957,58 +912,6 @@ struct SetupView: View {
 
     // MARK: - OpenCode helpers
 
-    /// Full-bleed image — GeometryReader guarantees 100% container width.
-    /// Shadow trimming (trimTransparentBorder) ensures content starts at pixel 0.
-    @ViewBuilder
-    private func fullBleedImage(_ name: String) -> some View {
-        if let img = loadResourceImage(name) {
-            Image(nsImage: img)
-                .resizable()
-                .aspectRatio(img.size.width / max(img.size.height, 1), contentMode: .fit)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 8)
-        }
-    }
-
-    /// "Open [label ↗]" step row — label is a tappable link with external icon.
-    private func openButtonStepRow(number: Int, label: String, action: @escaping () -> Void) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            numberBadge(number)
-            HStack(spacing: 4) {
-                Text("Open").foregroundStyle(.secondary)
-                Button(action: action) {
-                    HStack(spacing: 3) {
-                        Text(label)
-                        Image(systemName: "arrow.up.right.square").font(.system(size: 10))
-                    }
-                }
-                .buttonStyle(.link)
-            }
-            .font(.system(size: 13))
-        }
-    }
-
-    /// "Add http://localhost:4096 [clipboard] as a server" step row.
-    private func addServerStepRow(number: Int, key: String, showExternalLink: Bool) -> some View {
-        HStack(alignment: .center, spacing: 8) {
-            numberBadge(number)
-            HStack(spacing: 4) {
-                Text("Add").foregroundStyle(.secondary)
-                Text("http://localhost:4096")
-                clipboardButton("http://localhost:4096", key: key, size: 10)
-                if showExternalLink {
-                    Button(action: { NSWorkspace.shared.open(URL(string: "http://localhost:4096")!) }) {
-                        Image(systemName: "arrow.up.right.square").font(.system(size: 10))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                }
-                Text("as a server").foregroundStyle(.secondary)
-            }
-            .font(.system(size: 13))
-        }
-    }
-
     /// Clipboard button that briefly shows a checkmark on tap.
     private func clipboardButton(_ text: String, key: String, size: CGFloat) -> some View {
         Button(action: { copyToClipboard(text, key: key) }) {
@@ -1105,8 +1008,9 @@ class SetupWindowController {
     private var heightSink: AnyCancellable?
 
     @MainActor
-    func show(onSetupHotkey: ((HotkeyMode) -> Void)? = nil, onComplete: @escaping () -> Void) {
+    func show(openCodeConfig: OpenCodeConfig, onSetupHotkey: ((HotkeyMode) -> Void)? = nil, onComplete: @escaping () -> Void) {
         let state = SetupState()
+        state.openCodeConfig = openCodeConfig
         self.state = state
         state.checkPermissions()
 
@@ -1125,7 +1029,10 @@ class SetupWindowController {
         state.onSetupHotkey = onSetupHotkey
 
         let setupView = SetupView(state: state)
+            .environment(\.colorScheme, .dark)
+            .preferredColorScheme(.dark)
         let hostingController = NSHostingController(rootView: setupView)
+        hostingController.view.appearance = NSAppearance(named: .darkAqua)
 
         let window = NSWindow(
             contentRect: .zero,
@@ -1133,7 +1040,9 @@ class SetupWindowController {
             backing: .buffered,
             defer: false
         )
+        window.appearance = NSAppearance(named: .darkAqua)
         window.contentViewController = hostingController
+        window.contentView?.appearance = NSAppearance(named: .darkAqua)
         window.setContentSize(NSSize(width: 420, height: 340))
         window.title = "Aside"
         window.titlebarAppearsTransparent = true
@@ -1166,6 +1075,8 @@ class SetupWindowController {
 
         NSApp.activate(ignoringOtherApps: true)
         controller.showWindow(nil)
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView?.appearance = NSAppearance(named: .darkAqua)
     }
 
     func close() {

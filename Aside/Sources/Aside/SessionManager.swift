@@ -5,6 +5,7 @@ struct Session: Identifiable {
     let id: String
     let name: String
     let updatedAt: Date
+    let directory: String?
 
     /// Formatted time string, e.g. "3:38 PM"
     var timeString: String {
@@ -19,6 +20,13 @@ struct Session: Identifiable {
 class SessionManager: ObservableObject {
     @Published var sessions: [Session] = []
     @Published var selectedSessionID: String?
+    @Published var currentProjectDirectory: String?
+
+    let config: OpenCodeConfig
+
+    init(config: OpenCodeConfig) {
+        self.config = config
+    }
 
     /// The currently selected session, if any.
     var selectedSession: Session? {
@@ -26,64 +34,68 @@ class SessionManager: ObservableObject {
         return sessions.first { $0.id == id }
     }
 
-    /// Fetches sessions from `opencode session list --format json`.
+    /// Fetches sessions and current project from the OpenCode server.
     func refresh() async {
-        let fetched = await Self.fetchSessions()
-        sessions = fetched
+        guard let server = config.server else {
+            sessions = []
+            currentProjectDirectory = nil
+            return
+        }
+        async let fetchedSessions = Self.fetchSessions(server: server)
+        async let fetchedProject = Self.fetchCurrentProjectDirectory(server: server)
+        sessions = await fetchedSessions
+        currentProjectDirectory = await fetchedProject
     }
 
-    private static func fetchSessions() async -> [Session] {
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/bin/sh")
-                process.arguments = ["-c", "opencode session list --format json"]
+    nonisolated static func abbreviateHome(in path: String) -> String {
+        let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
+        if path == home {
+            return "~"
+        }
+        if path.hasPrefix(home + "/") {
+            return "~" + path.dropFirst(home.count)
+        }
+        return path
+    }
 
-                var env = ProcessInfo.processInfo.environment
-                let home = env["HOME"] ?? "/Users/\(NSUserName())"
-                if let path = env["PATH"] {
-                    env["PATH"] = "\(home)/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:\(path)"
-                }
-                process.environment = env
+    private static func fetchCurrentProjectDirectory(server: DiscoveredServer) async -> String? {
+        let request = server.authenticatedRequest(path: "/project/current")
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let path = json["path"] as? String, !path.isEmpty else { return nil }
+            return path
+        } catch {
+            print("[SessionManager] Failed to fetch current project: \(error)")
+            return nil
+        }
+    }
 
-                let pipe = Pipe()
-                process.standardOutput = pipe
-                process.standardError = Pipe()
+    private static func fetchSessions(server: DiscoveredServer) async -> [Session] {
+        let request = server.authenticatedRequest(path: "/session")
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
 
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-                } catch {
-                    continuation.resume(returning: [])
-                    return
-                }
-
-                guard process.terminationStatus == 0 else {
-                    continuation.resume(returning: [])
-                    return
-                }
-
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-
-                guard let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-                    continuation.resume(returning: [])
-                    return
-                }
-
-                var sessions = json.compactMap { obj -> Session? in
-                    guard let id = obj["id"] as? String else { return nil }
-                    let name = (obj["title"] as? String) ?? id
-                    // Timestamps are Unix milliseconds
-                    let updatedMs = (obj["updated"] as? Double) ?? (obj["created"] as? Double) ?? 0
-                    let updatedAt = Date(timeIntervalSince1970: updatedMs / 1000.0)
-                    return Session(id: id, name: name, updatedAt: updatedAt)
-                }
-
-                // Sort by most recent first
-                sessions.sort { $0.updatedAt > $1.updatedAt }
-
-                continuation.resume(returning: sessions)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+                return []
             }
+
+            var sessions = json.compactMap { obj -> Session? in
+                guard let id = obj["id"] as? String else { return nil }
+                let name = (obj["title"] as? String) ?? id
+                // Timestamps are Unix milliseconds
+                let updatedMs = (obj["updated"] as? Double) ?? (obj["created"] as? Double) ?? 0
+                let updatedAt = Date(timeIntervalSince1970: updatedMs / 1000.0)
+                let directory = obj["directory"] as? String
+                return Session(id: id, name: name, updatedAt: updatedAt, directory: directory)
+            }
+
+            // Sort by most recent first
+            sessions.sort { $0.updatedAt > $1.updatedAt }
+            return sessions
+        } catch {
+            print("[SessionManager] Failed to fetch sessions: \(error)")
+            return []
         }
     }
 }
