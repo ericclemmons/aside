@@ -59,6 +59,18 @@ class SetupState: ObservableObject {
         CGPreflightScreenCaptureAccess()
     }
 
+    /// Clear a stale TCC entry so the user sees a clean slate in System Preferences.
+    /// Requires the app to be codesigned with a stable --identifier matching the bundle ID.
+    static func resetTCCEntry(_ service: String) {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        proc.arguments = ["reset", service, Bundle.main.bundleIdentifier ?? "com.ericclemmons.aside.app"]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        try? proc.run()
+        proc.waitUntilExit()
+    }
+
     /// Test accessibility by attempting to create a CGEvent tap.
     /// Unlike AXIsProcessTrustedWithOptions(), this reflects permission changes immediately.
     static func canAccessibilityWork() -> Bool {
@@ -157,6 +169,8 @@ class SetupState: ObservableObject {
             if granted {
                 advance()
             } else {
+                // Clear stale TCC entry so the user sees a clean slate in System Preferences
+                Self.resetTCCEntry("ScreenCapture")
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
                 startPermissionPolling()
             }
@@ -166,6 +180,7 @@ class SetupState: ObservableObject {
             if trusted {
                 advance()
             } else {
+                Self.resetTCCEntry("Accessibility")
                 // Prompt the system dialog to add Aside to the Accessibility list
                 AXIsProcessTrustedWithOptions(
                     [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
