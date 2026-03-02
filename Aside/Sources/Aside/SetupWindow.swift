@@ -53,6 +53,27 @@ class SetupState: ObservableObject {
         print("[Setup] Permissions — mic: \(micGranted), speech: \(speechGranted), screenRecording: \(screenRecordingGranted), accessibility: \(accessibilityGranted)")
     }
 
+    /// Check screen recording via CGPreflightScreenCaptureAccess.
+    /// Note: this requires an app restart to reflect changes on modern macOS.
+    static func canCaptureScreen() -> Bool {
+        CGPreflightScreenCaptureAccess()
+    }
+
+    /// Test accessibility by attempting to create a CGEvent tap.
+    /// Unlike AXIsProcessTrustedWithOptions(), this reflects permission changes immediately.
+    static func canAccessibilityWork() -> Bool {
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue),
+            callback: { _, _, event, _ in Unmanaged.passRetained(event) },
+            userInfo: nil
+        ) else { return false }
+        CFMachPortInvalidate(tap)
+        return true
+    }
+
     func advance() {
         guard let currentIndex = SetupStep.allCases.firstIndex(of: currentStep) else { return }
         let nextIndex = SetupStep.allCases.index(after: currentIndex)
@@ -104,7 +125,6 @@ class SetupState: ObservableObject {
         case .microphone:
             let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
             if micStatus == .denied || micStatus == .restricted {
-                // Already denied — open System Settings and poll
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
                 startPermissionPolling()
             } else {
@@ -131,29 +151,25 @@ class SetupState: ObservableObject {
                 }
             }
         case .screenRecording:
-            let granted = CGPreflightScreenCaptureAccess()
+            // Validate by running a silent screencapture
+            let granted = validateScreenCapture()
             screenRecordingGranted = granted
             if granted {
                 advance()
             } else {
-                // Reset stale TCC entry so the system re-prompts cleanly
-                let proc = Process()
-                proc.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-                proc.arguments = ["reset", "ScreenCapture", Bundle.main.bundleIdentifier ?? "com.aside.app"]
-                try? proc.run()
-                proc.waitUntilExit()
-                // Open System Preferences to Screen Recording pane
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
                 startPermissionPolling()
             }
         case .accessibility:
-            let trusted = AXIsProcessTrustedWithOptions(
-                [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-            )
+            let trusted = Self.canAccessibilityWork()
             accessibilityGranted = trusted
             if trusted {
                 advance()
             } else {
+                // Prompt the system dialog to add Aside to the Accessibility list
+                AXIsProcessTrustedWithOptions(
+                    [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+                )
                 startPermissionPolling()
             }
         case .tryHoldToType:
@@ -167,13 +183,60 @@ class SetupState: ObservableObject {
         }
     }
 
+    /// Run a silent full-screen screencapture to trigger the TCC prompt.
+    func triggerScreenCapturePrompt() {
+        let testPath = "/tmp/aside-screen-test.png"
+        try? FileManager.default.removeItem(atPath: testPath)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        process.arguments = ["-x", testPath]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        process.terminationHandler = { _ in
+            try? FileManager.default.removeItem(atPath: testPath)
+        }
+
+        do {
+            try process.run()
+        } catch {
+            print("[Setup] screencapture prompt failed: \(error)")
+        }
+    }
+
+    /// Validate screen recording by running a silent screencapture.
+    /// Returns true if the file was created (permission granted).
+    func validateScreenCapture() -> Bool {
+        let testPath = "/tmp/aside-screen-validate.png"
+        try? FileManager.default.removeItem(atPath: testPath)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        process.arguments = ["-x", testPath]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return false
+        }
+
+        let exists = FileManager.default.fileExists(atPath: testPath)
+        try? FileManager.default.removeItem(atPath: testPath)
+        return exists
+    }
+
     private var permissionTimer: Timer?
     @Published var isPollingPermission = false
 
     private func startPermissionPolling() {
         isPollingPermission = true
         permissionTimer?.invalidate()
-        permissionTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        // Screen recording check spawns a process, so poll less frequently
+        let interval: TimeInterval = (currentStep == .screenRecording) ? 3.0 : 1.0
+        permissionTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 var granted = false
@@ -185,10 +248,10 @@ class SetupState: ObservableObject {
                     granted = SFSpeechRecognizer.authorizationStatus() == .authorized
                     self.speechGranted = granted
                 case .screenRecording:
-                    granted = CGPreflightScreenCaptureAccess()
+                    granted = self.validateScreenCapture()
                     self.screenRecordingGranted = granted
                 case .accessibility:
-                    granted = AXIsProcessTrustedWithOptions(nil)
+                    granted = Self.canAccessibilityWork()
                     self.accessibilityGranted = granted
                 default:
                     break
@@ -198,6 +261,31 @@ class SetupState: ObservableObject {
                     self.permissionTimer = nil
                     self.isPollingPermission = false
                     NSApp.activate(ignoringOtherApps: true)
+                    self.advance()
+                }
+            }
+        }
+    }
+
+    // MARK: - OpenCode polling
+
+    private var openCodeTimer: Timer?
+
+    func startOpenCodePolling() {
+        openCodeTimer?.invalidate()
+        isPollingPermission = true
+        openCodeTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.currentStep == .openCodeSetup else {
+                    self?.openCodeTimer?.invalidate()
+                    self?.openCodeTimer = nil
+                    return
+                }
+                self.openCodeConfig?.discover()
+                if self.openCodeConfig?.isConnected == true {
+                    self.openCodeTimer?.invalidate()
+                    self.openCodeTimer = nil
+                    self.isPollingPermission = false
                     self.advance()
                 }
             }
@@ -598,9 +686,19 @@ struct SetupView: View {
                 permissionGrantedBadge
                     .padding(.bottom, 12)
             }
+            if state.isPollingPermission && !state.screenRecordingGranted {
+                VStack(spacing: 4) {
+                    Text("If Aside is already listed, toggle it off")
+                    Text("and on, or remove and re-add it.")
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(.orange)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 8)
+            }
             permissionPollingIndicator
             Button(action: { state.requestCurrentPermission() }) {
-                Text(state.screenRecordingGranted ? "Continue" : "Allow Screenshots")
+                Text(state.screenRecordingGranted ? "Continue" : "Open Screen Recording Settings")
                     .font(.system(size: 13, weight: .medium))
                     .frame(minWidth: 200)
             }
@@ -636,6 +734,16 @@ struct SetupView: View {
             if state.accessibilityGranted {
                 permissionGrantedBadge
                     .padding(.bottom, 12)
+            }
+            if state.isPollingPermission && !state.accessibilityGranted {
+                VStack(spacing: 4) {
+                    Text("If Aside is already listed, remove it")
+                    Text("with the \u{2212} button first, then try again.")
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(.orange)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 8)
             }
             permissionPollingIndicator
             Button(action: { state.requestCurrentPermission() }) {
@@ -679,26 +787,16 @@ struct SetupView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.bottom, 16)
 
-            // Live connection status
-            HStack(spacing: 8) {
-                if let server = state.openCodeConfig?.server {
-                    Label("Connected on port \(server.port)", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.green)
-                } else {
-                    Label("Not connected", systemImage: "circle")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
+            if let server = state.openCodeConfig?.server {
+                Label {
+                    Text("Running on ") .font(.system(size: 13)) +
+                    Text("localhost:\(String(server.port))") .font(.system(size: 13, design: .monospaced))
+                } icon: {
+                    Image(systemName: "checkmark.circle.fill")
                 }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .padding(.horizontal, 8)
-            .background(Color(nsColor: .windowBackgroundColor).opacity(0.35))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .padding(.horizontal, 20)
-
-            if state.openCodeConfig?.server == nil {
+                .foregroundStyle(.green)
+                .padding(.bottom, 12)
+            } else {
                 Button(action: {
                     let appURL = URL(fileURLWithPath: "/Applications/OpenCode.app")
                     if FileManager.default.fileExists(atPath: appURL.path) {
@@ -714,24 +812,25 @@ struct SetupView: View {
                         .font(.system(size: 13, weight: .medium))
                         .frame(minWidth: 200)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .padding(.top, 12)
-            }
+                .padding(.bottom, 12)
 
-            Button(action: { state.advance() }) {
-                Text("Continue")
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(minWidth: 200)
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Waiting for server...")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
-            .padding(.top, 12)
 
             progressDots
                 .padding(.top, 16)
                 .padding(.bottom, 24)
+        }
+        .onAppear {
+            state.startOpenCodePolling()
         }
     }
 
