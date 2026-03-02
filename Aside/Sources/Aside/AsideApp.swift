@@ -89,6 +89,8 @@ struct AsideApp: App {
                 customWordsManager: appDelegate.customWordsManager
             )
             .frame(minWidth: 480, maxWidth: 520)
+            .environment(\.colorScheme, .dark)
+            .preferredColorScheme(.dark)
         }
     }
 }
@@ -112,6 +114,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var enhancer: TextEnhancer?
     private var settingsWindowController: NSWindowController?
     private var setupController: SetupWindowController?
+    private var appObserverTokens: [Any] = []
+    private var openCodeServerItem: NSMenuItem?
+    private var serverStatusTimer: Timer?
 
     /// The context captured when recording starts.
     private var capturedContext: ActiveContext?
@@ -168,6 +173,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        enforceDarkAppearance()
+        appObserverTokens.append(
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.enforceDarkAppearance()
+            }
+        )
 
         if TextEnhancer.isAvailable {
             enhancer = TextEnhancer()
@@ -195,6 +210,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         )
+
+        // Re-apply once windows are visible.
+        DispatchQueue.main.async { [weak self] in
+            self?.enforceDarkAppearance()
+        }
+    }
+
+    private func enforceDarkAppearance() {
+        guard let appearance = NSAppearance(named: .darkAqua) else { return }
+        NSApp.appearance = appearance
+        for window in NSApp.windows {
+            window.appearance = appearance
+            window.contentView?.appearance = appearance
+            window.contentViewController?.view.appearance = appearance
+        }
     }
 
     private func setupMenuBar() {
@@ -218,12 +248,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func buildMenu() {
         let menu = NSMenu()
+
+        // OpenCode server toggle
+        let serverItem = NSMenuItem(title: "", action: #selector(toggleOpenCodeServer), keyEquivalent: "")
+        serverItem.target = self
+        openCodeServerItem = serverItem
+        menu.addItem(serverItem)
+        refreshServerMenuItem()
+
+        menu.addItem(NSMenuItem.separator())
+
+        let webItem = NSMenuItem(title: "Open OpenCode Web...", action: #selector(openOpenCodeWeb), keyEquivalent: "")
+        webItem.target = self
+        menu.addItem(webItem)
+
+        let desktopItem = NSMenuItem(title: "Open OpenCode Desktop...", action: #selector(openOpenCodeDesktop), keyEquivalent: "")
+        desktopItem.target = self
+        menu.addItem(desktopItem)
+
+        menu.addItem(NSMenuItem.separator())
+
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit Aside", action: #selector(quit), keyEquivalent: "q"))
         statusItem?.menu = menu
+
+        // Refresh server status periodically
+        serverStatusTimer?.invalidate()
+        serverStatusTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshServerMenuItem()
+            }
+        }
     }
 
     @objc private func openSettings() {
@@ -247,10 +306,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
+        window.appearance = NSAppearance(named: .darkAqua)
         window.minSize = NSSize(width: 500, height: 400)
         window.center()
         window.title = "Aside Settings"
         window.contentViewController = hostingController
+        window.contentView?.appearance = NSAppearance(named: .darkAqua)
         window.isReleasedWhenClosed = false
 
         let controller = NSWindowController(window: window)
@@ -471,6 +532,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func showDispatchPicker(text: String) {
         let context = capturedContext
         let prompt = PromptBuilder.buildPrompt(transcription: text, context: context)
+        let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
 
         // Dismiss setup onboarding as soon as the picker appears —
         // the user completed the tap-to-agent flow with the 2nd tap.
@@ -479,12 +541,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Build destination list
-        var destinations: [DispatchDestination] = [
-            .newOpenCode(),
-        ]
+        var destinations: [DispatchDestination] = []
+
+        let projectDir = sessionManager.currentProjectDirectory ?? home
+        let displayDir = SessionManager.abbreviateHome(in: projectDir)
+        destinations.append(.sectionHeader("New Session"))
+        destinations.append(.newOpenCodeWorkspace(displayDirectory: displayDir, workingDirectory: projectDir))
 
         // Add existing opencode sessions
-        for session in sessionManager.sessions.prefix(5) {
+        let recentSessions = Array(sessionManager.sessions.prefix(5))
+        destinations.append(.sectionHeader("Last \(recentSessions.count) Sessions"))
+        for session in recentSessions {
             destinations.append(.openCodeSession(session))
         }
 
@@ -507,7 +574,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let finalPrompt = editedPrompt.isEmpty ? prompt : editedPrompt
             let paths = self.screenshotPaths
             self.screenshotPaths = []  // clear so finishSession doesn't delete
-            CLIDispatcher.dispatch(prompt: finalPrompt, sessionID: picked.sessionID, filePaths: paths)
+            CLIDispatcher.dispatch(
+                prompt: finalPrompt,
+                sessionID: picked.sessionID,
+                filePaths: paths,
+                workingDirectory: picked.workingDirectory
+            )
             self.finishSession()
         }
     }
@@ -592,12 +664,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - OpenCode server
 
     private func startOpenCodeServer() {
+        if isOpenCodeServerListening() {
+            print("[OpenCode] serve already listening on \(OpenCodeConfig.attachTarget)")
+            return
+        }
+
         let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
         let opencodePath = "\(home)/.opencode/bin/opencode"
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: opencodePath)
-        process.arguments = ["serve", "--port", "4096"]
+        process.arguments = ["serve", "--port", "\(OpenCodeConfig.port)"]
         process.currentDirectoryURL = URL(fileURLWithPath: home)
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -617,10 +694,100 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func stopOpenCodeServer() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        process.arguments = ["-nP", "-a", "-c", "opencode", "-iTCP:\(OpenCodeConfig.port)", "-sTCP:LISTEN", "-t"]
+
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            let pids = String(decoding: data, as: UTF8.self)
+                .split(whereSeparator: \.isNewline)
+                .compactMap { Int32($0) }
+            for pid in pids {
+                kill(pid, SIGTERM)
+                print("[OpenCode] sent SIGTERM to PID \(pid)")
+            }
+        } catch {
+            print("[OpenCode] stopOpenCodeServer failed: \(error)")
+        }
+    }
+
+    @objc private func toggleOpenCodeServer() {
+        if isOpenCodeServerListening() {
+            stopOpenCodeServer()
+        } else {
+            startOpenCodeServer()
+        }
+        // Delay refresh slightly so the process has time to start/stop
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.refreshServerMenuItem()
+        }
+    }
+
+    private func refreshServerMenuItem() {
+        let running = isOpenCodeServerListening()
+        let emoji = running ? "🟢" : "🔴"
+        openCodeServerItem?.title = "\(emoji) opencode serve \(OpenCodeConfig.attachTarget)"
+    }
+
+    @objc private func openOpenCodeWeb() {
+        if let url = OpenCodeConfig.serverURL {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func openOpenCodeDesktop() {
+        let appURL = URL(fileURLWithPath: "/Applications/OpenCode.app")
+        if FileManager.default.fileExists(atPath: appURL.path) {
+            NSWorkspace.shared.open(appURL)
+        } else {
+            // Fallback to open -a
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            process.arguments = ["-a", "OpenCode"]
+            try? process.run()
+        }
+    }
+
+    private func isOpenCodeServerListening() -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        process.arguments = ["-nP", "-a", "-c", "opencode", "-iTCP:\(OpenCodeConfig.port)", "-sTCP:LISTEN", "-t"]
+
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            guard process.terminationStatus == 0 else { return false }
+            let listeners = String(decoding: data, as: UTF8.self)
+                .split(whereSeparator: \.isNewline)
+            return !listeners.isEmpty
+        } catch {
+            return false
+        }
+    }
+
     // MARK: - Permissions
 
     @objc private func quit() {
         hotkeyManager.stop()
+        serverStatusTimer?.invalidate()
+        serverStatusTimer = nil
+        for token in appObserverTokens {
+            NotificationCenter.default.removeObserver(token)
+        }
+        appObserverTokens.removeAll()
         NSApp.terminate(nil)
     }
 
