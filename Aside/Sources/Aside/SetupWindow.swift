@@ -48,8 +48,8 @@ class SetupState: ObservableObject {
     func checkPermissions() {
         micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         speechGranted = SFSpeechRecognizer.authorizationStatus() == .authorized
-        screenRecordingGranted = CGPreflightScreenCaptureAccess()
-        accessibilityGranted = AXIsProcessTrustedWithOptions(nil)
+        screenRecordingGranted = validateScreenCapture()
+        accessibilityGranted = Self.canAccessibilityWork()
         print("[Setup] Permissions — mic: \(micGranted), speech: \(speechGranted), screenRecording: \(screenRecordingGranted), accessibility: \(accessibilityGranted)")
     }
 
