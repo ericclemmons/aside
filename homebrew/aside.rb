@@ -12,8 +12,8 @@ cask "aside" do
   app "Aside.app"
 
   zap trash: [
-    "~/Library/Application Support/com.aside.app",
-    "~/Library/Caches/com.aside.app",
-    "~/Library/Preferences/com.aside.app.plist",
+    "~/Library/Application Support/com.erriclemmons.aside.app",
+    "~/Library/Caches/com.erriclemmons.aside.app",
+    "~/Library/Preferences/com.erriclemmons.aside.app.plist",
   ]
 end

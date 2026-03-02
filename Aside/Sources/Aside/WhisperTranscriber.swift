@@ -80,7 +80,7 @@ class WhisperModelManager: ObservableObject {
     /// Root path where all models are stored in Application Support.
     static var modelsRootDirectory: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("com.aside.app/WhisperModels", isDirectory: true)
+        let dir = appSupport.appendingPathComponent("com.erriclemmons.aside.app/WhisperModels", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

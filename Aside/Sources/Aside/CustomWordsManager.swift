@@ -10,7 +10,7 @@ class CustomWordsManager: ObservableObject {
 
     private static var fileURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("com.aside.app", isDirectory: true)
+        let dir = appSupport.appendingPathComponent("com.erriclemmons.aside.app", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("custom_words.json")
     }
