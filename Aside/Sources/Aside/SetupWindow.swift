@@ -157,6 +157,15 @@ class SetupState: ObservableObject {
             if granted {
                 advance()
             } else {
+                // Reset stale TCC entry so the system re-prompts cleanly
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+                proc.arguments = ["reset", "ScreenCapture", Bundle.main.bundleIdentifier ?? "com.ericclemmons.aside.app"]
+                proc.standardOutput = FileHandle.nullDevice
+                proc.standardError = FileHandle.nullDevice
+                try? proc.run()
+                proc.waitUntilExit()
+
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
                 startPermissionPolling()
             }
