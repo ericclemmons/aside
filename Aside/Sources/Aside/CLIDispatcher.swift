@@ -16,27 +16,20 @@ struct CLIDispatcher {
         filePaths: [String] = [],
         workingDirectory: String? = nil
     ) {
-        // If no session ID, create one via the API first
-        var resolvedSessionID = sessionID
-        if resolvedSessionID == nil || resolvedSessionID?.isEmpty == true {
-            resolvedSessionID = createSession(server: server, directory: workingDirectory)
-            NSLog("[Dispatch] Created new session: \(resolvedSessionID ?? "nil")")
-        }
-
         let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
         let opencodePath = "\(home)/.opencode/bin/opencode"
 
         // Pipe prompt via stdin; `run` subcommand first, then flags
         var cmd = "echo \(shellQuote(prompt)) | \(opencodePath) run"
         cmd += " --attach \(server.attachTarget)"
-        if let resolvedSessionID, !resolvedSessionID.isEmpty {
-            cmd += " --session \(shellQuote(resolvedSessionID))"
+        if let sessionID, !sessionID.isEmpty {
+            cmd += " --session \(shellQuote(sessionID))"
         }
         for path in filePaths {
             cmd += " --file=\(shellQuote(path))"
         }
 
-        NSLog("[Dispatch] \(cmd.prefix(200))")
+        NSLog("[Dispatch] %@", String(cmd.prefix(300)))
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -59,44 +52,28 @@ struct CLIDispatcher {
         env["OPENCODE_SERVER_PASSWORD"] = server.password
         process.environment = env
 
+        // Capture stderr to log errors
+        let errPipe = Pipe()
+        process.standardError = errPipe
+
         do {
             try process.run()
-            NSLog("[Dispatch] opencode spawned PID: \(process.processIdentifier)")
+            NSLog("[Dispatch] opencode spawned PID: %d", process.processIdentifier)
+
+            // Log stderr asynchronously
+            errPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    handle.readabilityHandler = nil
+                    return
+                }
+                if let str = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !str.isEmpty {
+                    NSLog("[Dispatch] stderr: %@", str)
+                }
+            }
         } catch {
-            NSLog("[Dispatch] Failed to spawn opencode: \(error)")
+            NSLog("[Dispatch] Failed to spawn opencode: %@", error.localizedDescription)
         }
-    }
-
-    /// Create a new session on the OpenCode server via the API.
-    /// Returns the session ID, or nil on failure.
-    private static func createSession(server: DiscoveredServer, directory: String?) -> String? {
-        let request = server.authenticatedRequest(path: "/session")
-        var mutable = request
-        mutable.httpMethod = "POST"
-        mutable.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        var body: [String: String] = [:]
-        if let directory, !directory.isEmpty {
-            body["directory"] = directory
-        }
-        mutable.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        // Synchronous request — dispatch runs on a background context anyway
-        var result: String?
-        let semaphore = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: mutable) { data, _, error in
-            defer { semaphore.signal() }
-            guard let data, error == nil else {
-                NSLog("[Dispatch] createSession failed: \(error?.localizedDescription ?? "no data")")
-                return
-            }
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let id = json["id"] as? String {
-                result = id
-            }
-        }.resume()
-        semaphore.wait()
-        return result
     }
 
     /// Single-quote a string for safe shell interpolation.
