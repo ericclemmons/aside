@@ -16,20 +16,27 @@ struct CLIDispatcher {
         filePaths: [String] = [],
         workingDirectory: String? = nil
     ) {
+        // If no session ID, create one via the API first
+        var resolvedSessionID = sessionID
+        if resolvedSessionID == nil || resolvedSessionID?.isEmpty == true {
+            resolvedSessionID = createSession(server: server, directory: workingDirectory)
+            NSLog("[Dispatch] Created new session: \(resolvedSessionID ?? "nil")")
+        }
+
         let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
         let opencodePath = "\(home)/.opencode/bin/opencode"
 
         // Pipe prompt via stdin; `run` subcommand first, then flags
         var cmd = "echo \(shellQuote(prompt)) | \(opencodePath) run"
         cmd += " --attach \(server.attachTarget)"
-        if let sessionID, !sessionID.isEmpty {
-            cmd += " --session \(shellQuote(sessionID))"
+        if let resolvedSessionID, !resolvedSessionID.isEmpty {
+            cmd += " --session \(shellQuote(resolvedSessionID))"
         }
         for path in filePaths {
             cmd += " --file=\(shellQuote(path))"
         }
 
-        print("[Dispatch] \(cmd.prefix(200))")
+        NSLog("[Dispatch] \(cmd.prefix(200))")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -54,10 +61,42 @@ struct CLIDispatcher {
 
         do {
             try process.run()
-            print("[Dispatch] opencode spawned PID: \(process.processIdentifier)")
+            NSLog("[Dispatch] opencode spawned PID: \(process.processIdentifier)")
         } catch {
-            print("[Dispatch] Failed to spawn opencode: \(error)")
+            NSLog("[Dispatch] Failed to spawn opencode: \(error)")
         }
+    }
+
+    /// Create a new session on the OpenCode server via the API.
+    /// Returns the session ID, or nil on failure.
+    private static func createSession(server: DiscoveredServer, directory: String?) -> String? {
+        let request = server.authenticatedRequest(path: "/session")
+        var mutable = request
+        mutable.httpMethod = "POST"
+        mutable.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        var body: [String: String] = [:]
+        if let directory, !directory.isEmpty {
+            body["directory"] = directory
+        }
+        mutable.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        // Synchronous request — dispatch runs on a background context anyway
+        var result: String?
+        let semaphore = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: mutable) { data, _, error in
+            defer { semaphore.signal() }
+            guard let data, error == nil else {
+                NSLog("[Dispatch] createSession failed: \(error?.localizedDescription ?? "no data")")
+                return
+            }
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let id = json["id"] as? String {
+                result = id
+            }
+        }.resume()
+        semaphore.wait()
+        return result
     }
 
     /// Single-quote a string for safe shell interpolation.
