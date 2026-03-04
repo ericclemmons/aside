@@ -32,38 +32,6 @@ class OverlayState: ObservableObject {
     /// Callback fired when user picks a destination.
     var onDestinationPicked: ((DispatchDestination, String) -> Void)?
 
-    private var cancellables = Set<AnyCancellable>()
-
-    /// Binds to a SpeechTranscriber's published properties.
-    func bind(to transcriber: SpeechTranscriber) {
-        cancellables.removeAll()
-        transcriber.$isRecording.assign(to: &$isRecording)
-        transcriber.$audioLevel.assign(to: &$audioLevel)
-        transcriber.$transcribedText.assign(to: &$transcribedText)
-        transcriber.$isEnhancing.assign(to: &$isEnhancing)
-    }
-
-    /// Binds to a WhisperTranscriber's published properties.
-    func bind(to transcriber: WhisperTranscriber) {
-        cancellables.removeAll()
-        transcriber.$isRecording.assign(to: &$isRecording)
-        transcriber.$audioLevel.assign(to: &$audioLevel)
-        transcriber.$transcribedText.assign(to: &$transcribedText)
-        transcriber.$isEnhancing.assign(to: &$isEnhancing)
-    }
-
-    func startWaveform() {
-        mode = .waveform
-    }
-
-    func showPicker(destinations: [DispatchDestination], prompt: String, onPicked: @escaping (DispatchDestination, String) -> Void) {
-        self.destinations = destinations
-        self.selectedIndex = destinations.firstIndex(where: { $0.isSelectable }) ?? 0
-        self.editablePrompt = prompt
-        self.onDestinationPicked = onPicked
-        self.mode = .picker
-    }
-
     func moveSelection(by delta: Int) {
         guard !destinations.isEmpty else { return }
         guard destinations.contains(where: { $0.isSelectable }) else { return }
@@ -94,8 +62,6 @@ class OverlayState: ObservableObject {
         selectedIndex = 0
         editablePrompt = ""
         screenshotCount = 0
-        onDestinationPicked = nil
-        cancellables.removeAll()
     }
 }
 
