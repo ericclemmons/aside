@@ -1,25 +1,5 @@
 import Foundation
-
-/// A discovered OpenCode Desktop server instance.
-struct DiscoveredServer {
-    let host: String
-    let port: Int
-    let username: String
-    let password: String
-
-    var attachTarget: String { "http://\(host):\(port)" }
-    var baseURL: URL { URL(string: "http://\(host):\(port)")! }
-
-    /// Build a URLRequest with Basic auth for the given API path.
-    func authenticatedRequest(path: String) -> URLRequest {
-        let url = baseURL.appendingPathComponent(path)
-        var request = URLRequest(url: url)
-        let credentials = "\(username):\(password)"
-        let encoded = Data(credentials.utf8).base64EncodedString()
-        request.setValue("Basic \(encoded)", forHTTPHeaderField: "Authorization")
-        return request
-    }
-}
+import AsideCore
 
 /// Discovers and tracks a running OpenCode Desktop server via `ps eww`.
 @MainActor
@@ -41,7 +21,7 @@ class OpenCodeConfig: ObservableObject {
     private nonisolated static func findServer() -> DiscoveredServer? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["eww", "-o", "pid,command"]
+        process.arguments = ["ewwA", "-o", "pid,command"]
 
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -49,28 +29,23 @@ class OpenCodeConfig: ObservableObject {
 
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
-            print("[OpenCodeConfig] ps failed: \(error)")
+            NSLog("[OpenCodeConfig] ps failed: \(error)")
             return nil
         }
 
+        // Read data BEFORE waitUntilExit to avoid deadlock when output > 64KB pipe buffer
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
         let output = String(decoding: data, as: UTF8.self)
 
         for line in output.components(separatedBy: "\n") {
-            // Look for opencode-cli serve processes
-            guard line.contains("opencode-cli") && line.contains("serve") else { continue }
-            // Skip grep/ps artifacts
+            // Look for OpenCode Desktop's bundled CLI serve process
+            guard line.contains("OpenCode.app") && line.contains("opencode-cli") && line.contains("serve") else { continue }
             guard !line.contains("grep") else { continue }
 
-            // Extract port from --port flag
             guard let port = extractFlag(from: line, flag: "--port").flatMap({ Int($0) }) else { continue }
-
-            // Extract host from --hostname flag (default to 127.0.0.1)
             let host = extractFlag(from: line, flag: "--hostname") ?? "127.0.0.1"
-
-            // Extract credentials from environment variables in the ps eww output
             let username = extractEnvVar(from: line, name: "OPENCODE_SERVER_USERNAME") ?? "opencode"
             guard let password = extractEnvVar(from: line, name: "OPENCODE_SERVER_PASSWORD") else { continue }
 

@@ -3,6 +3,7 @@ import AppKit
 import AVFoundation
 import Speech
 import Combine
+import AsideCore
 
 // MARK: - Setup Step
 
@@ -174,6 +175,9 @@ class SetupState: ObservableObject {
             if granted {
                 advance()
             } else {
+                // Request adds Aside to the Screen Recording list in System Preferences
+                CGRequestScreenCaptureAccess()
+                // Also open Settings so the user can toggle it on
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
                 startPermissionPolling()
             }

@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AsideCore
 
 /// Protocol that both SpeechTranscriber (Direct Dictation) and WhisperTranscriber conform to.
 /// Provides a unified interface for the AppDelegate to interact with either engine.

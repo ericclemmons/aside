@@ -1,4 +1,5 @@
 import Foundation
+import AsideCore
 
 /// Dispatches transcribed prompts to OpenCode CLI.
 struct CLIDispatcher {

@@ -1,15 +1,8 @@
 import Foundation
 
-/// Builds a prompt string from the user's transcription and captured context.
-///
-/// Example output:
-///   > Selected text here
-///   > - https://example.com/the/page/im/on
-///
-///   Fix this bug
-struct PromptBuilder {
+public struct PromptBuilder {
 
-    static func buildPrompt(transcription: String, context: ActiveContext?) -> String {
+    public static func buildPrompt(transcription: String, context: ActiveContext?) -> String {
         var parts: [String] = []
 
         if let context {

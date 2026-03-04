@@ -8,17 +8,26 @@ let package = Package(
         .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.12.0"),
     ],
     targets: [
+        .target(
+            name: "AsideCore",
+            path: "Sources/AsideCore"
+        ),
         .executableTarget(
             name: "Aside",
             dependencies: [
+                "AsideCore",
                 .product(name: "WhisperKit", package: "WhisperKit"),
             ],
             path: "Sources/Aside",
             exclude: ["Aside.entitlements", "Info.plist"],
             resources: [
-                .process("Assets.xcassets"),
                 .process("Resources"),
             ]
+        ),
+        .testTarget(
+            name: "AsideTests",
+            dependencies: ["AsideCore"],
+            path: "Tests/AsideTests"
         ),
     ]
 )

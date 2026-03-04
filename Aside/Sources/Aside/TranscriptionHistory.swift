@@ -1,23 +1,6 @@
 import Foundation
 import Combine
-
-// MARK: - TranscriptionRecord
-
-struct TranscriptionRecord: Codable, Identifiable {
-    let id: UUID
-    let text: String
-    let timestamp: Date
-    let engine: String       // "dictation" or "whisper"
-    let wasEnhanced: Bool
-
-    init(text: String, engine: TranscriptionEngine, wasEnhanced: Bool) {
-        self.id = UUID()
-        self.text = text
-        self.timestamp = Date()
-        self.engine = engine.rawValue
-        self.wasEnhanced = wasEnhanced
-    }
-}
+import AsideCore
 
 // MARK: - TranscriptionHistoryManager
 

@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import Combine
 import WhisperKit
+import AsideCore
 
 // MARK: - Whisper Model Variant
 

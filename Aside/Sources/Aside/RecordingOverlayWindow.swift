@@ -1,66 +1,7 @@
 import AppKit
 import SwiftUI
 import Combine
-
-// MARK: - Dispatch destination
-
-/// A destination the user can pick from the dispatch picker.
-struct DispatchDestination: Identifiable, Equatable {
-    enum Kind: Equatable {
-        case sectionHeader
-        case newSessionWorkspace
-        case existingSession
-    }
-
-    let id: String
-    let kind: Kind
-    let label: String
-    let detail: String?
-    let time: String?
-    let sessionID: String?
-    let workingDirectory: String?
-
-    var isSelectable: Bool {
-        kind != .sectionHeader
-    }
-
-    static func sectionHeader(_ title: String) -> DispatchDestination {
-        DispatchDestination(
-            id: "header-\(title.lowercased().replacingOccurrences(of: " ", with: "-"))",
-            kind: .sectionHeader,
-            label: title,
-            detail: nil,
-            time: nil,
-            sessionID: nil,
-            workingDirectory: nil
-        )
-    }
-
-    static func newOpenCodeWorkspace(displayDirectory: String, workingDirectory: String) -> DispatchDestination {
-        DispatchDestination(
-            id: "opencode-new-\(workingDirectory)",
-            kind: .newSessionWorkspace,
-            label: "New Session in \(displayDirectory)",
-            detail: nil,
-            time: nil,
-            sessionID: nil,
-            workingDirectory: workingDirectory
-        )
-    }
-
-    static func openCodeSession(_ session: Session) -> DispatchDestination {
-        let displayDirectory = session.directory.map { SessionManager.abbreviateHome(in: $0) }
-        return DispatchDestination(
-            id: "opencode-\(session.id)",
-            kind: .existingSession,
-            label: session.name,
-            detail: displayDirectory,
-            time: session.timeString,
-            sessionID: session.id,
-            workingDirectory: nil
-        )
-    }
-}
+import AsideCore
 
 // MARK: - Overlay Mode
 

@@ -1,19 +1,5 @@
 import Foundation
-
-/// An opencode session.
-struct Session: Identifiable {
-    let id: String
-    let name: String
-    let updatedAt: Date
-    let directory: String?
-
-    /// Formatted time string, e.g. "3:38 PM"
-    var timeString: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        return formatter.string(from: updatedAt)
-    }
-}
+import AsideCore
 
 /// Fetches and manages opencode sessions.
 @MainActor
@@ -48,14 +34,7 @@ class SessionManager: ObservableObject {
     }
 
     nonisolated static func abbreviateHome(in path: String) -> String {
-        let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
-        if path == home {
-            return "~"
-        }
-        if path.hasPrefix(home + "/") {
-            return "~" + path.dropFirst(home.count)
-        }
-        return path
+        Session.abbreviateHome(in: path)
     }
 
     private static func fetchCurrentProjectDirectory(server: DiscoveredServer) async -> String? {

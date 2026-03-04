@@ -1,6 +1,7 @@
 import Foundation
 import Carbon
 import AppKit
+import AsideCore
 
 /// Monitors the global Right Option (⌥) key via a CGEvent tap.
 ///

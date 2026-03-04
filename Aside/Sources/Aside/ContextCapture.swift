@@ -1,13 +1,6 @@
 import AppKit
 import Foundation
-
-/// Captured context about the user's active window when recording started.
-struct ActiveContext {
-    var appName: String = ""
-    var windowTitle: String = ""
-    var url: String?
-    var selectedText: String?
-}
+import AsideCore
 
 /// Captures the active application context via AppleScript.
 struct ContextCapture {
