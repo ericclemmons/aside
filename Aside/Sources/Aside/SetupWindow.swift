@@ -174,7 +174,7 @@ class SetupState: ObservableObject {
             if granted {
                 advance()
             } else {
-                CGRequestScreenCaptureAccess()
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
                 startPermissionPolling()
             }
         case .accessibility:
