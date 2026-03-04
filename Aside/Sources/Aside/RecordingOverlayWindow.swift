@@ -139,7 +139,7 @@ class RecordingOverlayWindow: NSPanel {
     private func positionAtTop() {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? NSScreen.screens[0]
-        let size = CGSize(width: 440, height: 460)
+        let size = CGSize(width: 280, height: 460)
         let x = screen.visibleFrame.midX - size.width / 2
         let y = screen.visibleFrame.maxY - size.height
         setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: false)

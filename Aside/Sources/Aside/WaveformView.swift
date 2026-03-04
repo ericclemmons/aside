@@ -7,8 +7,8 @@ struct WaveformView: View {
     var isEnhancing: Bool = false
 
     // Processing bars state
-    private let barCount = 16
-    @State private var barPhases: [Double] = (0..<16).map { Double($0) * 0.4 }
+    private let barCount = 10
+    @State private var barPhases: [Double] = (0..<10).map { Double($0) * 0.4 }
     @State private var spinAngle: Double = 0
     @State private var animTimer: Timer?
 
@@ -16,7 +16,7 @@ struct WaveformView: View {
     @State private var textScrollID = UUID()
 
     private var hasText: Bool { !transcribedText.isEmpty && !isEnhancing }
-    private var textOverflows: Bool { transcribedText.count > 38 }
+    private var textOverflows: Bool { transcribedText.count > 20 }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,7 +27,7 @@ struct WaveformView: View {
             } else {
                 // Compact pill with sine wave waveform inside
                 WaveformBanner(audioLevel: audioLevel, liveMode: true)
-                    .frame(height: 36)
+                    .frame(height: 28)
                     .clipped()
 
                 if hasText {
@@ -39,15 +39,15 @@ struct WaveformView: View {
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            Capsule()
                 .fill(.black.opacity(0.85))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    Capsule()
                         .strokeBorder(.white.opacity(0.12), lineWidth: 1)
                 )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .frame(maxWidth: 420)
+        .clipShape(Capsule())
+        .frame(maxWidth: 220)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hasText)
         .animation(.easeInOut(duration: 0.25), value: isEnhancing)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -115,7 +115,7 @@ struct WaveformView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
                     Text(transcribedText)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.white.opacity(0.85))
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
