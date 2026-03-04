@@ -6,9 +6,9 @@ struct WaveformView: View {
     var transcribedText: String
     var isEnhancing: Bool = false
 
-    // Processing bars state
-    private let barCount = 16
-    @State private var barPhases: [Double] = (0..<16).map { Double($0) * 0.4 }
+    // Bar animation state
+    private let barCount = 24
+    @State private var barPhases: [Double] = (0..<24).map { Double($0) * 0.4 }
     @State private var spinAngle: Double = 0
     @State private var animTimer: Timer?
 
@@ -17,7 +17,6 @@ struct WaveformView: View {
 
     private var hasText: Bool { !transcribedText.isEmpty && !isEnhancing }
     private var textOverflows: Bool { transcribedText.count > 38 }
-    private var cornerRadius: CGFloat { hasText ? 16 : 20 }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,28 +25,34 @@ struct WaveformView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
             } else {
-                WaveformBanner(audioLevel: audioLevel, liveMode: true)
-                    .frame(height: 96)
+                // Compact Kaze-style: mic icon + audio bars
+                HStack(spacing: 8) {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.7))
+                    audioBars
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
 
                 if hasText {
                     transcriptionText
                         .padding(.horizontal, 16)
                         .padding(.bottom, 10)
-                        .padding(.top, 4)
+                        .padding(.top, 2)
                 }
             }
         }
-        .frame(maxWidth: 420)
         .background(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(.black)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.black.opacity(0.85))
                 .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .strokeBorder(.white.opacity(0.12), lineWidth: 1)
                 )
         )
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .animation(.spring(response: 0.4, dampingFraction: 0.55, blendDuration: 0.1), value: hasText)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hasText)
         .animation(.easeInOut(duration: 0.25), value: isEnhancing)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .offset(y: appeared ? 0 : -20)
@@ -62,6 +67,35 @@ struct WaveformView: View {
             stopAnimating()
             appeared = false
         }
+    }
+
+    // MARK: - Audio bars (Kaze-style compact equalizer)
+
+    private var audioBars: some View {
+        HStack(alignment: .center, spacing: 2) {
+            ForEach(0..<barCount, id: \.self) { index in
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(.white.opacity(audioBarOpacity(for: index)))
+                    .frame(width: 2, height: audioBarHeight(for: index))
+            }
+        }
+        .frame(height: 20)
+    }
+
+    private func audioBarHeight(for index: Int) -> CGFloat {
+        let level = CGFloat(max(0, min(1, audioLevel)))
+        let phase = barPhases[index]
+        let wave = (sin(phase) + 1) / 2
+        let base: CGFloat = 3
+        let maxH: CGFloat = 18
+        return base + (maxH - base) * level * CGFloat(wave)
+    }
+
+    private func audioBarOpacity(for index: Int) -> Double {
+        let level = Double(max(0, min(1, audioLevel)))
+        let phase = barPhases[index]
+        let wave = (sin(phase * 1.3) + 1) / 2
+        return 0.3 + 0.6 * level * wave
     }
 
     // MARK: - Enhancing row (spinner + shimmer bars)
@@ -141,14 +175,14 @@ struct WaveformView: View {
         .transition(.opacity)
     }
 
-    // MARK: - Animation timer (processing bars only — WaveformBanner has its own)
+    // MARK: - Animation timer
 
     private func startAnimating() {
         animTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
             Task { @MainActor in
-                let speed: Double = isEnhancing ? 0.08 : 0.05
+                let speed: Double = isEnhancing ? 0.08 : 0.12
                 for i in 0..<barCount {
-                    barPhases[i] += speed + Double(i) * 0.008
+                    barPhases[i] += speed + Double(i) * 0.015
                 }
             }
         }

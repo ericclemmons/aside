@@ -54,19 +54,23 @@ struct TryHoldToTypeView: View {
         .onAppear {
             isInputFocused = true
             micMonitor.start()
+            autoAdvanceIfTextPresent()
         }
         .onDisappear {
             micMonitor.stop()
         }
         .onChange(of: store.phase) { _, newPhase in
-            // Auto-advance when recording finishes with text
-            if newPhase == .onboardingTryHoldToType
-                && !store.context.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    if store.phase == .onboardingTryHoldToType {
-                        store.send(.typingComplete)
-                    }
-                }
+            if newPhase == .onboardingTryHoldToType {
+                autoAdvanceIfTextPresent()
+            }
+        }
+    }
+
+    private func autoAdvanceIfTextPresent() {
+        guard !store.context.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            if store.phase == .onboardingTryHoldToType {
+                store.send(.typingComplete)
             }
         }
     }
