@@ -1,0 +1,131 @@
+import Foundation
+
+// MARK: - AppPhase
+
+public enum AppPhase: Equatable, Sendable {
+    // Onboarding (3 screens, linear progression)
+    case onboardingPermissions
+    case onboardingTryHoldToType
+    case onboardingTryTapToDispatch
+
+    // Core app states
+    case idle
+    case recording           // key held, mic active
+    case persistent          // key released w/o text, still recording
+    case finishing(FinishMode) // transcriber stopping
+    case dispatching         // picker visible
+
+    public enum FinishMode: Equatable, Sendable {
+        case holdToType
+        case dispatch
+    }
+}
+
+// MARK: - AppEvent
+
+public enum AppEvent: Equatable, Sendable {
+    // Hotkey
+    case keyDown
+    case keyUp
+    case keyCancel
+
+    // Permissions
+    case permissionsChecked(PermissionStatus)
+    case permissionGranted(Permission)
+    case allPermissionsGranted
+    case setupDismissed
+
+    // Onboarding
+    case typingComplete
+    case dispatchComplete
+
+    // Transcription
+    case transcriptionUpdated(text: String, audioLevel: Float)
+    case transcriptionFinished(text: String)
+    case enhancementFinished(text: String)
+
+    // Server
+    case serverDiscovered(DiscoveredServer?)
+    case sessionsRefreshed(sessions: [Session], projectDirectory: String?)
+
+    // Context capture
+    case contextCaptured(ActiveContext)
+    case screenshotCaptured(path: String)
+
+    // Dispatch
+    case destinationPicked(DispatchDestination, editedPrompt: String)
+    case dispatchCancelled
+
+    // Screen capture
+    case screenCaptureReady
+
+    // Lifecycle
+    case appLaunched
+}
+
+// MARK: - AppContext
+
+public struct AppContext: Equatable, Sendable {
+    // Permissions
+    public var permissions: PermissionStatus
+
+    // Server
+    public var server: DiscoveredServer?
+    public var sessions: [Session]
+    public var currentProjectDirectory: String?
+
+    // Recording
+    public var transcribedText: String
+    public var audioLevel: Float
+    public var isEnhancing: Bool
+
+    // Capture
+    public var capturedContext: ActiveContext?
+    public var screenshotPaths: [String]
+
+    // Dispatch
+    public var currentPrompt: String
+    public var destinations: [DispatchDestination]
+    public var selectedDestinationIndex: Int
+
+    // Preferences
+    public var transcriptionEngine: TranscriptionEngine
+    public var enhancementMode: EnhancementMode
+
+    // OpenCode connected
+    public var openCodeConnected: Bool
+
+    public init(
+        permissions: PermissionStatus = PermissionStatus(),
+        server: DiscoveredServer? = nil,
+        sessions: [Session] = [],
+        currentProjectDirectory: String? = nil,
+        transcribedText: String = "",
+        audioLevel: Float = 0,
+        isEnhancing: Bool = false,
+        capturedContext: ActiveContext? = nil,
+        screenshotPaths: [String] = [],
+        currentPrompt: String = "",
+        destinations: [DispatchDestination] = [],
+        selectedDestinationIndex: Int = 0,
+        transcriptionEngine: TranscriptionEngine = .dictation,
+        enhancementMode: EnhancementMode = .off,
+        openCodeConnected: Bool = false
+    ) {
+        self.permissions = permissions
+        self.server = server
+        self.sessions = sessions
+        self.currentProjectDirectory = currentProjectDirectory
+        self.transcribedText = transcribedText
+        self.audioLevel = audioLevel
+        self.isEnhancing = isEnhancing
+        self.capturedContext = capturedContext
+        self.screenshotPaths = screenshotPaths
+        self.currentPrompt = currentPrompt
+        self.destinations = destinations
+        self.selectedDestinationIndex = selectedDestinationIndex
+        self.transcriptionEngine = transcriptionEngine
+        self.enhancementMode = enhancementMode
+        self.openCodeConnected = openCodeConnected
+    }
+}
