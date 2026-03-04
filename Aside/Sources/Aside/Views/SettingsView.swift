@@ -27,7 +27,7 @@ private enum SettingsTab: String, CaseIterable {
 
 // MARK: - Root View
 
-struct ContentView: View {
+struct SettingsView: View {
     @ObservedObject var whisperModelManager: WhisperModelManager
     @ObservedObject var historyManager: TranscriptionHistoryManager
     @ObservedObject var customWordsManager: CustomWordsManager

@@ -11,7 +11,7 @@ struct AsideApp: App {
 
     var body: some Scene {
         Settings {
-            ContentView(
+            SettingsView(
                 whisperModelManager: appDelegate.transcriptionService.whisperModelManager,
                 historyManager: appDelegate.historyManager,
                 customWordsManager: appDelegate.customWordsManager
@@ -232,7 +232,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let contentView = ContentView(
+        let contentView = SettingsView(
             whisperModelManager: transcriptionService.whisperModelManager,
             historyManager: historyManager,
             customWordsManager: customWordsManager
