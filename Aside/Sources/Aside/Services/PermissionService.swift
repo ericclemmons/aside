@@ -69,6 +69,9 @@ final class PermissionService {
         }
     }
 
+    /// Quick check: is screen recording currently working?
+    var hasScreenRecording: Bool { checkScreenRecording() }
+
     // MARK: - Capability tests
 
     /// Test if we can create the same kind of event tap HotkeyManager needs.

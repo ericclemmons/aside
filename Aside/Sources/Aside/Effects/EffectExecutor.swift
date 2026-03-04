@@ -72,6 +72,12 @@ final class EffectExecutor {
             }
 
         case .startScreenCapture:
+            // Only spawn screencapture if screen recording permission is confirmed.
+            // Without it, macOS shows a blocking TCC dialog every time.
+            guard permissionService?.hasScreenRecording == true else {
+                NSLog("[EffectExecutor] Skipping screen capture — no screen recording permission")
+                break
+            }
             screenCaptureService?.startCapture { path in
                 callback(.screenshotCaptured(path: path))
             }
