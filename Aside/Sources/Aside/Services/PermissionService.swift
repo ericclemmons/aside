@@ -118,8 +118,18 @@ final class PermissionService {
     }
 
     private func checkAccessibility() -> Bool {
-        // Don't use CGEvent tap for checking — creating/invalidating taps in a polling
-        // loop interferes with the hotkey's .defaultTap creation.
-        AXIsProcessTrustedWithOptions(nil)
+        // AXIsProcessTrustedWithOptions(nil) caches per-process — useless for polling.
+        // Create a .listenOnly tap (mouseMoved) to avoid conflict with HotkeyManager's .defaultTap.
+        let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: CGEventMask(1 << CGEventType.mouseMoved.rawValue),
+            callback: { _, _, event, _ in Unmanaged.passRetained(event) },
+            userInfo: nil
+        )
+        guard let tap else { return false }
+        CFMachPortInvalidate(tap)
+        return true
     }
 }
