@@ -94,33 +94,12 @@ struct SetupView: View {
                         let status = permissionService.checkAll()
                         store.send(.permissionsChecked(status))
                     }
-                    // Also open System Settings for permissions that need manual toggle
-                    if permission == .screenRecording || permission == .accessibility {
-                        openSystemSettings(for: permission)
-                    }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
             }
         }
         .padding(.vertical, 4)
-    }
-
-    private func openSystemSettings(for permission: Permission) {
-        let urlString: String
-        switch permission {
-        case .screenRecording:
-            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
-        case .accessibility:
-            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-        case .microphone:
-            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
-        case .speechRecognition:
-            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition"
-        }
-        if let url = URL(string: urlString) {
-            NSWorkspace.shared.open(url)
-        }
     }
 
     private var openCodeRow: some View {
