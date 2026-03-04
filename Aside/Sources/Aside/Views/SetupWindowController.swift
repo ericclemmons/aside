@@ -12,12 +12,18 @@ class StoreSetupWindowController {
     func show(store: AppStore, permissionService: PermissionService) {
         // Check if all permissions already granted
         let status = permissionService.checkAll()
+        NSLog("[SetupWindow] permissions: mic=%d speech=%d screen=%d access=%d allGranted=%d",
+              status.microphone ? 1 : 0, status.speechRecognition ? 1 : 0,
+              status.screenRecording ? 1 : 0, status.accessibility ? 1 : 0,
+              status.allGranted ? 1 : 0)
         store.send(.permissionsChecked(status))
         if status.allGranted {
             // Skip setup, go straight to idle
+            NSLog("[SetupWindow] All permissions granted, skipping setup")
             store.send(.setupDismissed)
             return
         }
+        NSLog("[SetupWindow] Showing setup window")
 
         let rootView = StoreSetupRootView(store: store, permissionService: permissionService)
             .environment(\.colorScheme, .dark)

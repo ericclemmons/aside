@@ -4,16 +4,38 @@ import AVFoundation
 import Speech
 import AsideCore
 
-/// Checks and requests TCC permissions.
+/// Checks and requests TCC permissions using standard Apple APIs.
 @MainActor
 final class PermissionService {
 
+    private var accessibilityObserver: NSObjectProtocol?
+    private var onAccessibilityChange: (() -> Void)?
+
+    /// Register a callback for when accessibility permission changes.
+    /// Uses the `com.apple.accessibility.api` distributed notification.
+    func observeAccessibilityChanges(_ handler: @escaping () -> Void) {
+        onAccessibilityChange = handler
+        accessibilityObserver = DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("com.apple.accessibility.api"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.onAccessibilityChange?()
+        }
+    }
+
+    deinit {
+        if let observer = accessibilityObserver {
+            DistributedNotificationCenter.default().removeObserver(observer)
+        }
+    }
+
     func checkAll() -> PermissionStatus {
         PermissionStatus(
-            screenRecording: checkScreenRecording(),
-            microphone: checkMicrophone(),
-            speechRecognition: checkSpeechRecognition(),
-            accessibility: checkAccessibility()
+            screenRecording: CGPreflightScreenCaptureAccess(),
+            microphone: AVCaptureDevice.authorizationStatus(for: .audio) == .authorized,
+            speechRecognition: SFSpeechRecognizer.authorizationStatus() == .authorized,
+            accessibility: AXIsProcessTrusted()
         )
     }
 
@@ -35,55 +57,8 @@ final class PermissionService {
                 }
             }
         case .screenRecording:
-            // Opens System Settings if already prompted; safe to call multiple times
             CGRequestScreenCaptureAccess()
-            return checkScreenRecording()
+            return CGPreflightScreenCaptureAccess()
         }
-    }
-
-    // MARK: - Individual checks
-
-    private func checkScreenRecording() -> Bool {
-        // CGPreflightScreenCaptureAccess() caches per-process — useless for polling.
-        // Instead, check if we can read window names from other processes.
-        guard let windowList = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
-        ) as? [[String: Any]] else {
-            return false
-        }
-        let myPID = Int(ProcessInfo.processInfo.processIdentifier)
-        for window in windowList {
-            guard let pid = window[kCGWindowOwnerPID as String] as? Int,
-                  pid != myPID else { continue }
-            // Without screen recording, kCGWindowName is absent for other apps
-            if window.keys.contains(kCGWindowName as String) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func checkMicrophone() -> Bool {
-        AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-    }
-
-    private func checkSpeechRecognition() -> Bool {
-        SFSpeechRecognizer.authorizationStatus() == .authorized
-    }
-
-    private func checkAccessibility() -> Bool {
-        // AXIsProcessTrustedWithOptions(nil) caches per-process — useless for polling.
-        // Create a .listenOnly tap (mouseMoved) to avoid conflict with HotkeyManager's .defaultTap.
-        let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: CGEventMask(1 << CGEventType.mouseMoved.rawValue),
-            callback: { _, _, event, _ in Unmanaged.passRetained(event) },
-            userInfo: nil
-        )
-        guard let tap else { return false }
-        CFMachPortInvalidate(tap)
-        return true
     }
 }

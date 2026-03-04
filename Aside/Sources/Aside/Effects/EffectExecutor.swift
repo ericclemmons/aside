@@ -100,7 +100,7 @@ final class EffectExecutor {
             }
 
         case .startPermissionPolling:
-            // Start polling permissions every second
+            // Poll permissions every second (mic, speech, screen recording)
             Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
                 guard let self else { timer.invalidate(); return }
                 let status = self.permissionService?.checkAll() ?? PermissionStatus()
@@ -108,6 +108,12 @@ final class EffectExecutor {
                 if status.allGranted {
                     timer.invalidate()
                 }
+            }
+            // Also listen for accessibility changes via distributed notification
+            permissionService?.observeAccessibilityChanges { [weak self] in
+                guard let self else { return }
+                let status = self.permissionService?.checkAll() ?? PermissionStatus()
+                callback(.permissionsChecked(status))
             }
 
         case .startServerDiscovery:
