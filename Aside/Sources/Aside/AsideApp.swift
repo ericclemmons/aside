@@ -27,8 +27,8 @@ struct AsideApp: App {
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
-    // Store
-    let store = AppStore(phase: .idle, context: AppContext(
+    // Store — starts in onboardingPermissions; setup wizard handles skip-if-granted
+    let store = AppStore(phase: .onboardingPermissions, context: AppContext(
         transcriptionEngine: {
             let raw = UserDefaults.standard.string(forKey: AppPreferenceKey.transcriptionEngine)
             return TranscriptionEngine(rawValue: raw ?? "") ?? .dictation
@@ -55,7 +55,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let overlayState = OverlayState()
     private var statusItem: NSStatusItem?
     private var settingsWindowController: NSWindowController?
-    private var setupController: SetupWindowController?
+    private var storeSetupController: StoreSetupWindowController?
     private var appObserverTokens: [Any] = []
 
     // Effect executor
@@ -97,26 +97,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupMenuBar()
 
-        // Show setup window (will be replaced in Step 7)
-        setupController = SetupWindowController()
-        setupController?.show(
-            openCodeConfig: openCodeService.config,
-            onSetupHotkey: { [weak self] _ in
-                guard let self, !self.hotkeyService.isRunning else { return }
-                self.hotkeyService.start { [weak self] event in
-                    self?.store.send(event)
-                }
-            },
-            onComplete: { [weak self] in
-                guard let self else { return }
-                self.setupController = nil
-                if !self.hotkeyService.isRunning {
-                    self.hotkeyService.start { [weak self] event in
-                        self?.store.send(event)
-                    }
-                }
-            }
-        )
+        // Show setup window — reads store.phase, auto-closes on transition to idle
+        storeSetupController = StoreSetupWindowController()
+        storeSetupController?.show(store: store, permissionService: permissionService)
 
         // Start server discovery
         store.send(.appLaunched)
@@ -152,11 +135,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             if dest.id == "cancel" {
                 self.store.send(.dispatchCancelled)
-                // Dismiss setup if in tap-to-dispatch step
-                self.setupController?.state?.markDispatchTested()
             } else {
                 self.store.send(.destinationPicked(dest, editedPrompt: editedPrompt))
-                self.setupController?.state?.markDispatchTested()
+            }
+            // If in onboarding tap-to-dispatch, completing a dispatch transitions to idle
+            if self.store.phase == .onboardingTryTapToDispatch {
+                self.store.send(.dispatchComplete)
             }
         }
     }
