@@ -58,12 +58,6 @@ class SetupState: ObservableObject {
         NSLog("[Setup] Permissions — mic: \(micGranted), speech: \(speechGranted), screenRecording: \(screenRecordingGranted), accessibility: \(accessibilityGranted)")
     }
 
-    /// Check screen recording via CGPreflightScreenCaptureAccess.
-    /// Note: this requires an app restart to reflect changes on modern macOS.
-    static func canCaptureScreen() -> Bool {
-        CGPreflightScreenCaptureAccess()
-    }
-
     /// Clear a stale TCC entry so the user sees a clean slate in System Preferences.
     /// Requires the app to be codesigned with a stable --identifier matching the bundle ID.
     static func resetTCCEntry(_ service: String) {
@@ -175,16 +169,12 @@ class SetupState: ObservableObject {
                 }
             }
         case .screenRecording:
-            // Validate by running a silent screencapture
-            let granted = validateScreenCapture()
-            NSLog("[Setup] screenRecording: validateScreenCapture() = \(granted)")
+            let granted = CGPreflightScreenCaptureAccess()
             screenRecordingGranted = granted
             if granted {
-                NSLog("[Setup] screenRecording: granted, advancing")
                 advance()
             } else {
-                NSLog("[Setup] screenRecording: NOT granted, opening settings + polling")
-                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+                CGRequestScreenCaptureAccess()
                 startPermissionPolling()
             }
         case .accessibility:
@@ -211,56 +201,6 @@ class SetupState: ObservableObject {
         }
     }
 
-    /// Run a silent full-screen screencapture to trigger the TCC prompt.
-    func triggerScreenCapturePrompt() {
-        let testPath = "/tmp/aside-screen-test.png"
-        try? FileManager.default.removeItem(atPath: testPath)
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        process.arguments = ["-x", testPath]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        process.terminationHandler = { _ in
-            try? FileManager.default.removeItem(atPath: testPath)
-        }
-
-        do {
-            try process.run()
-        } catch {
-            NSLog("[Setup] screencapture prompt failed: \(error)")
-        }
-    }
-
-    /// Validate screen recording by running a silent screencapture.
-    /// Returns true if the file was created (permission granted).
-    func validateScreenCapture() -> Bool {
-        let testPath = "/tmp/aside-screen-validate.png"
-        try? FileManager.default.removeItem(atPath: testPath)
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        process.arguments = ["-x", testPath]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            NSLog("[Setup] validateScreenCapture: screencapture started (pid \(process.processIdentifier))")
-            process.waitUntilExit()
-            NSLog("[Setup] validateScreenCapture: screencapture exited with status \(process.terminationStatus)")
-        } catch {
-            NSLog("[Setup] validateScreenCapture: failed to run screencapture: \(error)")
-            return false
-        }
-
-        let exists = FileManager.default.fileExists(atPath: testPath)
-        let size = (try? FileManager.default.attributesOfItem(atPath: testPath)[.size] as? Int) ?? 0
-        NSLog("[Setup] validateScreenCapture: file exists=\(exists), size=\(size)")
-        try? FileManager.default.removeItem(atPath: testPath)
-        return exists
-    }
-
     private var permissionTimer: Timer?
     @Published var isPollingPermission = false
 
@@ -268,9 +208,7 @@ class SetupState: ObservableObject {
         NSLog("[Setup] startPermissionPolling() for step: \(currentStep)")
         isPollingPermission = true
         permissionTimer?.invalidate()
-        // Screen recording check spawns a process, so poll less frequently
-        let interval: TimeInterval = (currentStep == .screenRecording) ? 3.0 : 1.0
-        permissionTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        permissionTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 var granted = false
@@ -282,8 +220,7 @@ class SetupState: ObservableObject {
                     granted = SFSpeechRecognizer.authorizationStatus() == .authorized
                     self.speechGranted = granted
                 case .screenRecording:
-                    granted = self.validateScreenCapture()
-                    NSLog("[Setup] polling screenRecording: validateScreenCapture() = \(granted)")
+                    granted = CGPreflightScreenCaptureAccess()
                     self.screenRecordingGranted = granted
                 case .accessibility:
                     granted = Self.canAccessibilityWork()
@@ -721,19 +658,9 @@ struct SetupView: View {
                 permissionGrantedBadge
                     .padding(.bottom, 12)
             }
-            if state.isPollingPermission && !state.screenRecordingGranted {
-                VStack(spacing: 4) {
-                    Text("If Aside is already listed, toggle it off")
-                    Text("and on, or remove and re-add it.")
-                }
-                .font(.system(size: 12))
-                .foregroundStyle(.orange)
-                .multilineTextAlignment(.center)
-                .padding(.bottom, 8)
-            }
             permissionPollingIndicator
             Button(action: { state.requestCurrentPermission() }) {
-                Text(state.screenRecordingGranted ? "Continue" : "Open Screen Recording Settings")
+                Text(state.screenRecordingGranted ? "Continue" : "Allow Screen Recording")
                     .font(.system(size: 13, weight: .medium))
                     .frame(minWidth: 200)
             }

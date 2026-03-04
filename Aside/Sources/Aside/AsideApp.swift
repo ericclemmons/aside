@@ -632,7 +632,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        process.arguments = ["-i", tempPath]
+        process.arguments = ["-Wo", tempPath]
         process.terminationHandler = { [weak self] proc in
             Task { @MainActor [weak self] in
                 guard let self else { return }
