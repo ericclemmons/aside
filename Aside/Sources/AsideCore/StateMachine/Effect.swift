@@ -20,8 +20,7 @@ public enum Effect: Equatable, Sendable {
     // Permissions
     case checkPermissions
     case requestPermission(Permission)
-    case openSystemPreferences(Permission)
-    case startPermissionPolling
+case startPermissionPolling
 
     // Server
     case startServerDiscovery

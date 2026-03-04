@@ -7,11 +7,15 @@ import AsideCore
 struct SetupView: View {
     @ObservedObject var store: AppStore
     let permissionService: PermissionService
+    @StateObject private var micMonitor = MicLevelMonitor()
 
     var body: some View {
         VStack(spacing: 0) {
-            WaveformBanner(audioLevel: 0, liveMode: false)
-                .frame(height: 96)
+            WaveformBanner(
+                audioLevel: micMonitor.audioLevel,
+                liveMode: store.context.permissions.microphone
+            )
+            .frame(height: 96)
 
             Spacer(minLength: 20)
 
@@ -53,6 +57,17 @@ struct SetupView: View {
         .frame(width: 420)
         .onAppear {
             store.send(.appLaunched)
+            updateMicMonitor()
+        }
+        .onChange(of: store.context.permissions.microphone) { _, granted in
+            if granted { micMonitor.start() } else { micMonitor.stop() }
+        }
+        .onDisappear { micMonitor.stop() }
+    }
+
+    private func updateMicMonitor() {
+        if store.context.permissions.microphone {
+            micMonitor.start()
         }
     }
 

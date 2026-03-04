@@ -4,10 +4,22 @@ import AsideCore
 /// Interactive hold-to-type test — onboardingTryHoldToType phase.
 struct TryHoldToTypeView: View {
     @ObservedObject var store: AppStore
+    @FocusState private var isInputFocused: Bool
+    @State private var typedText = ""
+    @StateObject private var micMonitor = MicLevelMonitor()
+
+    private var isRecording: Bool {
+        store.phase == .recording || store.phase == .finishing(.holdToType)
+    }
+
+    /// Use store audio level during recording, mic monitor when idle
+    private var currentAudioLevel: Float {
+        isRecording ? store.context.audioLevel : micMonitor.audioLevel
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            WaveformBanner(audioLevel: store.context.audioLevel, liveMode: true)
+            WaveformBanner(audioLevel: currentAudioLevel, liveMode: true)
                 .frame(height: 96)
 
             Spacer(minLength: 20)
@@ -28,68 +40,62 @@ struct TryHoldToTypeView: View {
             keyboardIllustration
                 .padding(.bottom, 16)
 
-            // Text field showing transcription
-            VStack(spacing: 8) {
-                TextField("Your speech will appear here...", text: .constant(store.context.transcribedText))
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 13))
-                    .disabled(true)
-                    .frame(maxWidth: 320)
+            // Real editable text field — CGEvent typing goes here
+            TextField("Your speech will appear here...", text: $typedText)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 13))
+                .focused($isInputFocused)
+                .frame(maxWidth: 320)
+                .padding(.bottom, 20)
 
-                if !store.context.transcribedText.isEmpty {
-                    Text("It worked! Your speech was typed.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.green)
-                }
-            }
-            .padding(.bottom, 20)
-
-            HStack(spacing: 12) {
-                if !store.context.transcribedText.isEmpty {
-                    Button(action: { store.send(.typingComplete) }) {
-                        Text("Continue")
-                            .font(.system(size: 13, weight: .medium))
-                            .frame(minWidth: 120)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .keyboardShortcut(.defaultAction)
-                }
-
-                Button(action: { store.send(.setupDismissed) }) {
-                    Text("Skip")
-                        .font(.system(size: 13))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-            }
-            .padding(.bottom, 24)
+            Spacer(minLength: 24)
         }
         .frame(width: 420)
+        .onAppear {
+            isInputFocused = true
+            micMonitor.start()
+        }
+        .onDisappear {
+            micMonitor.stop()
+        }
+        .onChange(of: store.phase) { _, newPhase in
+            // Auto-advance when recording finishes with text
+            if newPhase == .onboardingTryHoldToType
+                && !store.context.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    if store.phase == .onboardingTryHoldToType {
+                        store.send(.typingComplete)
+                    }
+                }
+            }
+        }
     }
 
     private var keyboardIllustration: some View {
-        HStack(spacing: 4) {
-            ForEach(["ctrl", "alt", "cmd", "space", "cmd"], id: \.self) { key in
-                keyCap(key, highlight: key == "alt")
-            }
-            keyCap("alt", highlight: true)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(.blue, lineWidth: 2)
-                )
+        HStack(spacing: 3) {
+            keyCap("", width: 120) // spacebar
+            keyCap("⌘", width: 32)
+            keyCap("⌥", width: 32, highlight: true)
+            keyCap("◀", width: 32)
         }
     }
 
-    private func keyCap(_ label: String, highlight: Bool = false) -> some View {
+    private func keyCap(_ label: String, width: CGFloat, highlight: Bool = false) -> some View {
         Text(label)
-            .font(.system(size: 9, weight: highlight ? .bold : .regular))
-            .foregroundStyle(highlight ? .white : .secondary)
-            .padding(.horizontal, label == "space" ? 24 : 8)
-            .padding(.vertical, 6)
+            .font(.system(size: 10, weight: highlight ? .bold : .regular))
+            .foregroundStyle(.white)
+            .frame(width: width, height: 24)
             .background(
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(highlight ? .blue.opacity(0.3) : .white.opacity(0.08))
+                    .fill(highlight ? .blue.opacity(0.3) : .white.opacity(0.1))
+            )
+            .overlay(
+                Group {
+                    if highlight {
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(.blue, lineWidth: 2)
+                    }
+                }
             )
     }
 }

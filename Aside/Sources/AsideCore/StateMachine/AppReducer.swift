@@ -8,7 +8,7 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
     // MARK: - App Lifecycle
 
     case (_, .appLaunched):
-        return (phase, [.checkPermissions, .startServerDiscovery])
+        return (phase, [.checkPermissions, .startServerDiscovery, .startPermissionPolling])
 
     // MARK: - Onboarding: Permissions
 
@@ -38,11 +38,13 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
     case (.onboardingTryHoldToType, .keyDown):
         context.transcribedText = ""
         context.audioLevel = 0
+        context.onboardingOrigin = .onboardingTryHoldToType
         return (.recording, [.startRecording(context.transcriptionEngine), .showOverlay(.waveform)])
 
     case (.onboardingTryTapToDispatch, .keyDown):
         context.transcribedText = ""
         context.audioLevel = 0
+        context.onboardingOrigin = .onboardingTryTapToDispatch
         return (.recording, [.startRecording(context.transcriptionEngine), .showOverlay(.waveform)])
 
     // MARK: - Onboarding: Try Tap-to-Dispatch
@@ -69,6 +71,10 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
         let hasText = !context.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if hasText {
             return (.finishing(.holdToType), [.stopRecording])
+        } else if context.onboardingOrigin == .onboardingTryHoldToType {
+            // Hold-to-type onboarding: release without text → go back
+            context.onboardingOrigin = nil
+            return (.onboardingTryHoldToType, [.cancelRecording, .hideOverlay])
         } else {
             return (.persistent, [.startScreenCapture, .captureContext, .refreshSessions])
         }
@@ -76,6 +82,10 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
     case (.recording, .keyCancel):
         context.transcribedText = ""
         context.audioLevel = 0
+        if let origin = context.onboardingOrigin {
+            context.onboardingOrigin = nil
+            return (origin, [.cancelRecording, .hideOverlay])
+        }
         return (.idle, [.cancelRecording, .hideOverlay])
 
     case (.recording, .transcriptionUpdated(let text, let level)):
@@ -123,6 +133,15 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
     // MARK: - Finishing
 
     case (.finishing(.holdToType), .transcriptionFinished(let text)):
+        // Onboarding: type the text (real experience), return to onboarding phase
+        if let origin = context.onboardingOrigin {
+            context.onboardingOrigin = nil
+            if text.isEmpty {
+                context.transcribedText = ""
+                return (origin, [.hideOverlay])
+            }
+            return (origin, [.typeText(text), .hideOverlay])
+        }
         guard !text.isEmpty else {
             context.transcribedText = ""
             return (.idle, [.hideOverlay])

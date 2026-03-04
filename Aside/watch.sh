@@ -2,6 +2,7 @@
 # watch.sh — rebuild and relaunch Aside on source changes
 cd "$(dirname "$0")"
 BUNDLE="$(pwd)/Aside.app"
+BINARY="$BUNDLE/Contents/MacOS/Aside"
 export BUNDLE
 
 rebuild() {
@@ -10,7 +11,8 @@ rebuild() {
     if swift build 2>&1; then
         pkill -x Aside 2>/dev/null || true
         sleep 0.3
-        cp .build/arm64-apple-macosx/debug/Aside "$BUNDLE/Contents/MacOS/Aside"
+        cp .build/arm64-apple-macosx/debug/Aside "$BINARY"
+        codesign --force --deep --sign - --identifier com.ericclemmons.aside.app "$BUNDLE"
         open "$BUNDLE"
         echo "✓  Done"
     else

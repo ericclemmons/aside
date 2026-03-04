@@ -99,9 +99,6 @@ final class EffectExecutor {
                 }
             }
 
-        case .openSystemPreferences(let perm):
-            permissionService?.openSystemPreferences(for: perm)
-
         case .startPermissionPolling:
             // Start polling permissions every second
             Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
@@ -154,7 +151,9 @@ final class EffectExecutor {
             historyManager?.addRecord(TranscriptionRecord(text: text, engine: engine, wasEnhanced: enhanced))
 
         case .startHotkey:
+            NSLog("[EffectExecutor] Starting hotkey service (nil=%d)", hotkeyService == nil ? 1 : 0)
             hotkeyService?.start { [weak self] event in
+                NSLog("[EffectExecutor] Hotkey event: %@", String(describing: event))
                 self?.store.send(event)
             }
         }

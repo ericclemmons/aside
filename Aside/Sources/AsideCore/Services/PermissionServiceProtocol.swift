@@ -48,5 +48,4 @@ public struct PermissionStatus: Equatable, Sendable {
 public protocol PermissionServiceProtocol {
     func checkAll() -> PermissionStatus
     func request(_ permission: Permission) async -> Bool
-    func openSystemPreferences(for permission: Permission)
 }

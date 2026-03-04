@@ -289,7 +289,7 @@ private struct HeightPreferenceKey: PreferenceKey {
 // MARK: - Lightweight mic level monitor (no transcription)
 
 @MainActor
-private class MicLevelMonitor: ObservableObject {
+class MicLevelMonitor: ObservableObject {
     @Published var audioLevel: Float = 0
     private var recorder: AVAudioRecorder?
     private var meterTimer: Timer?

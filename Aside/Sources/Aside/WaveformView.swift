@@ -40,7 +40,7 @@ struct WaveformView: View {
         .frame(maxWidth: 420)
         .background(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(.black.opacity(0.82))
+                .fill(.black)
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .strokeBorder(.white.opacity(0.12), lineWidth: 1)

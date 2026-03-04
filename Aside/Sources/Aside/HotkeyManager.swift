@@ -61,7 +61,7 @@ class HotkeyManager {
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
-            print("[HotkeyManager] Failed to create event tap. Grant Accessibility permission.")
+            NSLog("[HotkeyManager] Failed to create event tap. Grant Accessibility permission.")
             isAccessibilityGranted = false
             return false
         }
@@ -71,6 +71,7 @@ class HotkeyManager {
         CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
         isAccessibilityGranted = true
+        NSLog("[HotkeyManager] Event tap created successfully")
         return true
     }
 
@@ -82,6 +83,15 @@ class HotkeyManager {
     }
 
     private func handleEvent(type: CGEventType, event: CGEvent) {
+        // macOS disables event taps if callback is slow — re-enable immediately
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            NSLog("[HotkeyManager] Event tap was disabled, re-enabling")
+            if let tap = eventTap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
+            return
+        }
+
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
 
         if type == .keyDown {

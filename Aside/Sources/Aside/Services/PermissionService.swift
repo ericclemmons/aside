@@ -8,6 +8,11 @@ import AsideCore
 @MainActor
 final class PermissionService {
 
+    /// Tracks which permissions we've already requested this process lifetime.
+    /// If the user clicks Grant again for a permission we already requested,
+    /// we reset TCC and relaunch so the OS prompt fires fresh.
+    private var requestedThisSession: Set<Permission> = []
+
     func checkAll() -> PermissionStatus {
         PermissionStatus(
             screenRecording: checkScreenRecording(),
@@ -18,6 +23,20 @@ final class PermissionService {
     }
 
     func request(_ permission: Permission) async -> Bool {
+        // Accessibility always prompts via AX API — no caching issue
+        if permission == .accessibility {
+            let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
+            return AXIsProcessTrustedWithOptions(options)
+        }
+
+        // For TCC-based permissions: if we already requested this session
+        // and it's still not granted, reset TCC and relaunch for a clean slate.
+        if requestedThisSession.contains(permission) {
+            relaunch(resettingPermission: permission)
+            return false
+        }
+        requestedThisSession.insert(permission)
+
         switch permission {
         case .microphone:
             return await withCheckedContinuation { cont in
@@ -35,32 +54,59 @@ final class PermissionService {
             CGRequestScreenCaptureAccess()
             return checkScreenRecording()
         case .accessibility:
-            let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
-            return AXIsProcessTrustedWithOptions(options)
+            return false // unreachable, handled above
         }
     }
 
-    func openSystemPreferences(for permission: Permission) {
-        let urlString: String
+    // MARK: - Relaunch
+
+    private func relaunch(resettingPermission permission: Permission) {
+        let service: String
         switch permission {
-        case .screenRecording:
-            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
-        case .microphone:
-            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
-        case .speechRecognition:
-            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition"
-        case .accessibility:
-            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        case .screenRecording: service = "ScreenCapture"
+        case .microphone: service = "Microphone"
+        case .speechRecognition: service = "SpeechRecognition"
+        case .accessibility: return
         }
-        if let url = URL(string: urlString) {
-            NSWorkspace.shared.open(url)
+
+        // Reset TCC entry so the OS prompt fires on next launch
+        let reset = Process()
+        reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        reset.arguments = ["reset", service, "com.ericclemmons.aside.app"]
+        try? reset.run()
+        reset.waitUntilExit()
+
+        // Relaunch the app
+        let appURL = Bundle.main.bundleURL
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: appURL, configuration: config) { _, _ in
+            DispatchQueue.main.async {
+                NSApp.terminate(nil)
+            }
         }
     }
 
     // MARK: - Individual checks
 
     private func checkScreenRecording() -> Bool {
-        CGPreflightScreenCaptureAccess()
+        // CGPreflightScreenCaptureAccess() caches per-process — useless for polling.
+        // Instead, check if we can read window names from other processes.
+        guard let windowList = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] else {
+            return false
+        }
+        let myPID = Int(ProcessInfo.processInfo.processIdentifier)
+        for window in windowList {
+            guard let pid = window[kCGWindowOwnerPID as String] as? Int,
+                  pid != myPID else { continue }
+            // Without screen recording, kCGWindowName is absent for other apps
+            if window.keys.contains(kCGWindowName as String) {
+                return true
+            }
+        }
+        return false
     }
 
     private func checkMicrophone() -> Bool {
@@ -72,19 +118,8 @@ final class PermissionService {
     }
 
     private func checkAccessibility() -> Bool {
-        // Create and immediately invalidate a CGEvent tap — this is the most accurate check
-        let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: CGEventMask(1 << CGEventType.flagsChanged.rawValue),
-            callback: { _, _, event, _ in Unmanaged.passRetained(event) },
-            userInfo: nil
-        )
-        if let tap {
-            CFMachPortInvalidate(tap)
-            return true
-        }
-        return false
+        // Don't use CGEvent tap for checking — creating/invalidating taps in a polling
+        // loop interferes with the hotkey's .defaultTap creation.
+        AXIsProcessTrustedWithOptions(nil)
     }
 }

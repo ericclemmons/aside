@@ -92,6 +92,9 @@ public struct AppContext: Equatable, Sendable {
     public var transcriptionEngine: TranscriptionEngine
     public var enhancementMode: EnhancementMode
 
+    // Onboarding
+    public var onboardingOrigin: AppPhase?
+
     // OpenCode connected
     public var openCodeConnected: Bool
 
@@ -108,6 +111,7 @@ public struct AppContext: Equatable, Sendable {
         currentPrompt: String = "",
         destinations: [DispatchDestination] = [],
         selectedDestinationIndex: Int = 0,
+        onboardingOrigin: AppPhase? = nil,
         transcriptionEngine: TranscriptionEngine = .dictation,
         enhancementMode: EnhancementMode = .off,
         openCodeConnected: Bool = false
@@ -124,6 +128,7 @@ public struct AppContext: Equatable, Sendable {
         self.currentPrompt = currentPrompt
         self.destinations = destinations
         self.selectedDestinationIndex = selectedDestinationIndex
+        self.onboardingOrigin = onboardingOrigin
         self.transcriptionEngine = transcriptionEngine
         self.enhancementMode = enhancementMode
         self.openCodeConnected = openCodeConnected
