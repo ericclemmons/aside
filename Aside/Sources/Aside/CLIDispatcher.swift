@@ -20,34 +20,28 @@ struct CLIDispatcher {
         let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
         let opencodePath = "\(home)/.opencode/bin/opencode"
 
-        // Build args array: opencode run [flags] <prompt>
-        var args = ["run"]
+        // Build shell command: echo '<prompt>' | opencode [flags] run
+        // `run` MUST be last arg for stdin piping to work.
+        var flags = ""
 
         if let sessionID, !sessionID.isEmpty {
             // Existing session: attach to server + resume session
-            args += ["--attach", server.attachTarget]
-            args += ["--session", sessionID]
-        } else if let workingDirectory, !workingDirectory.isEmpty {
-            // New session: attach to server, specify remote dir
-            args += ["--attach", server.attachTarget]
-            args += ["--dir", workingDirectory]
-        } else {
-            // Fallback: attach without session (may fail)
-            args += ["--attach", server.attachTarget]
+            flags += " --attach \(server.attachTarget)"
+            flags += " --session \(shellQuote(sessionID))"
         }
+        // New sessions: no --attach (it requires --session).
+        // Running locally with cwd set still syncs via OpenCode Desktop.
 
         for path in filePaths {
-            args += ["--file=\(path)"]
+            flags += " --file=\(shellQuote(path))"
         }
 
-        // Prompt as positional argument (not piped via stdin)
-        args.append(prompt)
-
-        NSLog("[Dispatch] %@ %@", opencodePath, args.joined(separator: " ").prefix(300).description)
+        let cmd = "echo \(shellQuote(prompt)) | \(opencodePath)\(flags) run"
+        NSLog("[Dispatch] %@", String(cmd.prefix(300)))
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: opencodePath)
-        process.arguments = args
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", cmd]
 
         if let workingDirectory, !workingDirectory.isEmpty {
             let expandedDirectory = (workingDirectory as NSString).expandingTildeInPath
@@ -88,5 +82,10 @@ struct CLIDispatcher {
         } catch {
             NSLog("[Dispatch] Failed to spawn opencode: %@", error.localizedDescription)
         }
+    }
+
+    /// Single-quote a string for safe shell interpolation.
+    private static func shellQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
