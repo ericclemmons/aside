@@ -49,12 +49,7 @@ class SetupState: ObservableObject {
     func checkPermissions() {
         micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         speechGranted = SFSpeechRecognizer.authorizationStatus() == .authorized
-        // Don't use validateScreenCapture() here — it runs screencapture which triggers a TCC prompt.
-        // CGPreflightScreenCaptureAccess() is non-prompting. False positives from stale grants are
-        // handled by validateScreenCapture() when the user clicks the button on that step.
-        let preflightResult = CGPreflightScreenCaptureAccess()
-        NSLog("[Setup] checkPermissions: CGPreflightScreenCaptureAccess() = \(preflightResult)")
-        screenRecordingGranted = preflightResult
+        screenRecordingGranted = Self.canScreenRecordingWork()
         accessibilityGranted = Self.canAccessibilityWork()
         NSLog("[Setup] Permissions — mic: \(micGranted), speech: \(speechGranted), screenRecording: \(screenRecordingGranted), accessibility: \(accessibilityGranted)")
     }
@@ -69,6 +64,26 @@ class SetupState: ObservableObject {
         proc.standardError = FileHandle.nullDevice
         try? proc.run()
         proc.waitUntilExit()
+    }
+
+    /// Test screen recording by checking if we can read window names from other processes.
+    /// Without permission, kCGWindowName is absent for other apps' windows.
+    /// Unlike CGPreflightScreenCaptureAccess(), this reflects permission changes immediately.
+    static func canScreenRecordingWork() -> Bool {
+        guard let windowList = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] else {
+            return false
+        }
+        let myPID = Int(ProcessInfo.processInfo.processIdentifier)
+        for window in windowList {
+            guard let pid = window[kCGWindowOwnerPID as String] as? Int,
+                  pid != myPID else { continue }
+            if window.keys.contains(kCGWindowName as String) {
+                return true
+            }
+        }
+        return false
     }
 
     /// Test accessibility by attempting to create a CGEvent tap.
@@ -170,7 +185,7 @@ class SetupState: ObservableObject {
                 }
             }
         case .screenRecording:
-            let granted = CGPreflightScreenCaptureAccess()
+            let granted = Self.canScreenRecordingWork()
             screenRecordingGranted = granted
             if granted {
                 advance()
@@ -224,7 +239,7 @@ class SetupState: ObservableObject {
                     granted = SFSpeechRecognizer.authorizationStatus() == .authorized
                     self.speechGranted = granted
                 case .screenRecording:
-                    granted = CGPreflightScreenCaptureAccess()
+                    granted = Self.canScreenRecordingWork()
                     self.screenRecordingGranted = granted
                 case .accessibility:
                     granted = Self.canAccessibilityWork()
