@@ -20,21 +20,34 @@ struct CLIDispatcher {
         let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
         let opencodePath = "\(home)/.opencode/bin/opencode"
 
-        // Pipe prompt via stdin; `run` subcommand first, then flags
-        var cmd = "echo \(shellQuote(prompt)) | \(opencodePath) run"
-        cmd += " --attach \(server.attachTarget)"
+        // Build args array: opencode run [flags] <prompt>
+        var args = ["run"]
+
         if let sessionID, !sessionID.isEmpty {
-            cmd += " --session \(shellQuote(sessionID))"
-        }
-        for path in filePaths {
-            cmd += " --file=\(shellQuote(path))"
+            // Existing session: attach to server + resume session
+            args += ["--attach", server.attachTarget]
+            args += ["--session", sessionID]
+        } else if let workingDirectory, !workingDirectory.isEmpty {
+            // New session: attach to server, specify remote dir
+            args += ["--attach", server.attachTarget]
+            args += ["--dir", workingDirectory]
+        } else {
+            // Fallback: attach without session (may fail)
+            args += ["--attach", server.attachTarget]
         }
 
-        NSLog("[Dispatch] %@", String(cmd.prefix(300)))
+        for path in filePaths {
+            args += ["--file=\(path)"]
+        }
+
+        // Prompt as positional argument (not piped via stdin)
+        args.append(prompt)
+
+        NSLog("[Dispatch] %@ %@", opencodePath, args.joined(separator: " ").prefix(300).description)
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", cmd]
+        process.executableURL = URL(fileURLWithPath: opencodePath)
+        process.arguments = args
 
         if let workingDirectory, !workingDirectory.isEmpty {
             let expandedDirectory = (workingDirectory as NSString).expandingTildeInPath
@@ -75,10 +88,5 @@ struct CLIDispatcher {
         } catch {
             NSLog("[Dispatch] Failed to spawn opencode: %@", error.localizedDescription)
         }
-    }
-
-    /// Single-quote a string for safe shell interpolation.
-    private static func shellQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
