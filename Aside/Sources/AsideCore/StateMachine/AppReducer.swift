@@ -76,7 +76,7 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
             context.onboardingOrigin = nil
             return (.onboardingTryHoldToType, [.cancelRecording, .hideOverlay])
         } else {
-            return (.persistent, [.startScreenCapture, .captureContext, .refreshSessions])
+            return (.persistent, [.captureContext, .refreshSessions])
         }
 
     case (.recording, .keyCancel):
@@ -98,11 +98,11 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
     case (.persistent, .keyDown):
         let hasText = !context.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if hasText {
-            return (.finishing(.dispatch), [.stopRecording, .stopScreenCapture])
+            return (.finishing(.dispatch), [.stopRecording])
         } else {
             context.transcribedText = ""
             context.audioLevel = 0
-            return (.idle, [.cancelRecording, .stopScreenCapture, .hideOverlay, .deleteFiles(context.screenshotPaths)])
+            return (.idle, [.cancelRecording, .hideOverlay, .deleteFiles(context.screenshotPaths)])
         }
 
     case (.persistent, .keyCancel):
@@ -110,7 +110,7 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
         context.transcribedText = ""
         context.audioLevel = 0
         context.screenshotPaths = []
-        return (.idle, [.cancelRecording, .stopScreenCapture, .hideOverlay, .deleteFiles(paths)])
+        return (.idle, [.cancelRecording, .hideOverlay, .deleteFiles(paths)])
 
     case (.persistent, .transcriptionUpdated(let text, let level)):
         context.transcribedText = text
