@@ -8,11 +8,6 @@ import AsideCore
 @MainActor
 final class PermissionService {
 
-    /// Tracks which permissions we've already requested this process lifetime.
-    /// If the user clicks Grant again for a permission we already requested,
-    /// we reset TCC and relaunch so the OS prompt fires fresh.
-    private var requestedThisSession: Set<Permission> = []
-
     func checkAll() -> PermissionStatus {
         PermissionStatus(
             screenRecording: checkScreenRecording(),
@@ -23,21 +18,10 @@ final class PermissionService {
     }
 
     func request(_ permission: Permission) async -> Bool {
-        // Accessibility always prompts via AX API — no caching issue
-        if permission == .accessibility {
+        switch permission {
+        case .accessibility:
             let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
             return AXIsProcessTrustedWithOptions(options)
-        }
-
-        // For TCC-based permissions: if we already requested this session
-        // and it's still not granted, reset TCC and relaunch for a clean slate.
-        if requestedThisSession.contains(permission) {
-            relaunch(resettingPermission: permission)
-            return false
-        }
-        requestedThisSession.insert(permission)
-
-        switch permission {
         case .microphone:
             return await withCheckedContinuation { cont in
                 AVCaptureDevice.requestAccess(for: .audio) { granted in
@@ -51,39 +35,9 @@ final class PermissionService {
                 }
             }
         case .screenRecording:
+            // Opens System Settings if already prompted; safe to call multiple times
             CGRequestScreenCaptureAccess()
             return checkScreenRecording()
-        case .accessibility:
-            return false // unreachable, handled above
-        }
-    }
-
-    // MARK: - Relaunch
-
-    private func relaunch(resettingPermission permission: Permission) {
-        let service: String
-        switch permission {
-        case .screenRecording: service = "ScreenCapture"
-        case .microphone: service = "Microphone"
-        case .speechRecognition: service = "SpeechRecognition"
-        case .accessibility: return
-        }
-
-        // Reset TCC entry so the OS prompt fires on next launch
-        let reset = Process()
-        reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-        reset.arguments = ["reset", service, "com.ericclemmons.aside.app"]
-        try? reset.run()
-        reset.waitUntilExit()
-
-        // Relaunch the app
-        let appURL = Bundle.main.bundleURL
-        let config = NSWorkspace.OpenConfiguration()
-        config.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(at: appURL, configuration: config) { _, _ in
-            DispatchQueue.main.async {
-                NSApp.terminate(nil)
-            }
         }
     }
 

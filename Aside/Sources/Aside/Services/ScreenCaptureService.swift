@@ -32,7 +32,7 @@ final class ScreenCaptureService {
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        proc.arguments = ["-Wo", tempPath]
+        proc.arguments = ["-io", tempPath]
         proc.terminationHandler = { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }

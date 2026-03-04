@@ -47,6 +47,7 @@ struct WaveformView: View {
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .frame(maxWidth: 420)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hasText)
         .animation(.easeInOut(duration: 0.25), value: isEnhancing)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
