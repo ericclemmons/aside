@@ -1,19 +1,20 @@
 import Foundation
-import AppKit
-import ScreenCaptureKit
+import AsideCore
 
-/// Captures the frontmost non-Aside window using ScreenCaptureKit.
-/// Same TCC scope as our capability test — no subprocess, no extra TCC dialog.
+/// Manages the screencapture process for window screenshots.
 @MainActor
 final class ScreenCaptureService {
+    private var process: Process?
     private var onCapture: ((String) -> Void)?
 
     func startCapture(onCapture: @escaping (String) -> Void) {
         self.onCapture = onCapture
-        Task { await captureTopmostWindow() }
+        spawnCapture()
     }
 
     func stopCapture() {
+        process?.terminate()
+        process = nil
         onCapture = nil
     }
 
@@ -23,50 +24,34 @@ final class ScreenCaptureService {
         }
     }
 
-    private func captureTopmostWindow() async {
+    private func spawnCapture() {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd 'at' h.mm.ss a"
+        let timestamp = formatter.string(from: Date())
+        let tempPath = "/tmp/com.ericclemmons.Aside-\(timestamp).png"
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        proc.arguments = ["-io", tempPath]
+        proc.terminationHandler = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.process = nil
+                if FileManager.default.fileExists(atPath: tempPath) {
+                    self.onCapture?(tempPath)
+                    // Re-spawn if still capturing
+                    if self.onCapture != nil {
+                        self.spawnCapture()
+                    }
+                }
+            }
+        }
+
         do {
-            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            let asidePID = ProcessInfo.processInfo.processIdentifier
-
-            // Find frontmost non-Aside window that's reasonably sized
-            guard let targetWindow = content.windows.first(where: { window in
-                window.owningApplication?.processID != asidePID
-                && window.frame.width >= 100
-                && window.frame.height >= 100
-                && window.isOnScreen
-            }) else {
-                NSLog("[ScreenCapture] No suitable window found")
-                return
-            }
-
-            let filter = SCContentFilter(desktopIndependentWindow: targetWindow)
-            let config = SCStreamConfiguration()
-            config.width = Int(targetWindow.frame.width) * 2  // Retina
-            config.height = Int(targetWindow.frame.height) * 2
-            config.captureResolution = .best
-            config.showsCursor = false
-
-            let image = try await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: config
-            )
-
-            // Save as PNG
-            let timestamp = Int(Date().timeIntervalSince1970)
-            let tempPath = "/tmp/com.ericclemmons.Aside-\(timestamp).png"
-            let url = URL(fileURLWithPath: tempPath)
-
-            let rep = NSBitmapImageRep(cgImage: image)
-            guard let pngData = rep.representation(using: .png, properties: [:]) else {
-                NSLog("[ScreenCapture] Failed to create PNG data")
-                return
-            }
-            try pngData.write(to: url)
-
-            NSLog("[ScreenCapture] Captured window to %@", tempPath)
-            onCapture?(tempPath)
+            try proc.run()
+            process = proc
         } catch {
-            NSLog("[ScreenCapture] Capture failed: %@", error.localizedDescription)
+            NSLog("[ScreenCapture] Failed to spawn: \(error)")
         }
     }
 }

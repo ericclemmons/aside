@@ -12,7 +12,7 @@ rebuild() {
         pkill -x Aside 2>/dev/null || true
         sleep 0.3
         cp .build/arm64-apple-macosx/debug/Aside "$BINARY"
-        codesign --force --deep --sign - --identifier com.ericclemmons.aside.app "$BUNDLE"
+        codesign --force --deep --sign "Developer ID Application: Eric Clemmons (D3TJHQZD9N)" --identifier com.ericclemmons.aside.app "$BUNDLE"
         open "$BUNDLE"
         echo "✓  Done"
     else
