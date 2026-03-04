@@ -4,7 +4,7 @@ import AsideCore
 /// Merged OpenCodeConfig + SessionManager functionality.
 @MainActor
 final class OpenCodeService {
-    private let config = OpenCodeConfig()
+    let config = OpenCodeConfig()
     private lazy var sessionManager = SessionManager(config: config)
     private var discoveryTimer: Timer?
 
