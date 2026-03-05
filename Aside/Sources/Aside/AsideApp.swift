@@ -306,7 +306,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func attachToProject(_ sender: NSMenuItem) {
         guard let dir = sender.representedObject as? String else { return }
-        let command = "opencode attach localhost:\(OpenCodeService.port) --dir \(dir)"
+        let command = "OPENCODE_SERVER_USERNAME=opencode OPENCODE_SERVER_PASSWORD= opencode attach localhost:\(OpenCodeService.port) --dir \(dir)"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
         NSApp.hide(nil)
