@@ -201,9 +201,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 string: "opencode attach …",
                 attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)]
             )
-            attachItem.action = #selector(attachWithCLI)
-            attachItem.target = self
             attachItem.image = NSImage(systemSymbolName: "keyboard", accessibilityDescription: nil)
+
+            let submenu = NSMenu()
+            attachItem.submenu = submenu
+
+            // Populate async — show placeholder while loading
+            let loadingItem = NSMenuItem(title: "Loading…", action: nil, keyEquivalent: "")
+            loadingItem.isEnabled = false
+            submenu.addItem(loadingItem)
+
+            Task {
+                let projects = await self.fetchProjects()
+                submenu.removeAllItems()
+                if projects.isEmpty {
+                    let emptyItem = NSMenuItem(title: "No projects", action: nil, keyEquivalent: "")
+                    emptyItem.isEnabled = false
+                    submenu.addItem(emptyItem)
+                } else {
+                    for project in projects {
+                        let dir = Session.abbreviateHome(in: project.worktree)
+                        let title = "\(dir)  \(project.timeAgo)"
+                        let item = NSMenuItem(title: title, action: #selector(self.attachToProject(_:)), keyEquivalent: "")
+                        item.target = self
+                        item.representedObject = project.worktree
+                        submenu.addItem(item)
+                    }
+                }
+            }
+
             menu.addItem(attachItem)
         }
 
@@ -272,14 +298,47 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func attachWithCLI() {
-        guard store.context.server != nil else { return }
-        let command = "opencode attach localhost:\(OpenCodeService.port)"
+    @objc private func attachToProject(_ sender: NSMenuItem) {
+        guard let dir = sender.representedObject as? String else { return }
+        let command = "opencode attach localhost:\(OpenCodeService.port) --dir \(dir)"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
         NSApp.hide(nil)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             self?.pasteAndEnter()
+        }
+    }
+
+    private struct ProjectInfo {
+        let worktree: String
+        let updatedAt: Date
+
+        var timeAgo: String {
+            let interval = Date().timeIntervalSince(updatedAt)
+            if interval < 60 { return "just now" }
+            if interval < 3600 { return "\(Int(interval / 60))m ago" }
+            if interval < 86400 { return "\(Int(interval / 3600))h ago" }
+            return "\(Int(interval / 86400))d ago"
+        }
+    }
+
+    private func fetchProjects() async -> [ProjectInfo] {
+        guard let server = store.context.server else { return [] }
+        let request = server.authenticatedRequest(path: "/project")
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+            var projects = json.compactMap { obj -> ProjectInfo? in
+                guard let worktree = obj["worktree"] as? String else { return nil }
+                let time = obj["time"] as? [String: Any]
+                let updatedMs = time?["updated"] as? Double ?? 0
+                return ProjectInfo(worktree: worktree, updatedAt: Date(timeIntervalSince1970: updatedMs / 1000))
+            }
+            projects.sort { $0.updatedAt > $1.updatedAt }
+            return projects
+        } catch {
+            NSLog("[Aside] Failed to fetch projects: %@", error.localizedDescription)
+            return []
         }
     }
 
