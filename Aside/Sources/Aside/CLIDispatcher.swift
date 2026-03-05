@@ -1,14 +1,14 @@
 import Foundation
 import AsideCore
 
-/// Dispatches transcribed prompts to OpenCode CLI.
+/// Dispatches transcribed prompts to OpenCode CLI via Aside's own server (port 45103).
 struct CLIDispatcher {
 
     /// Dispatch a prompt to OpenCode.
     /// - Parameters:
     ///   - prompt: The assembled prompt string (with context).
-    ///   - server: The discovered OpenCode Desktop server to attach to.
-    ///   - sessionID: Optional opencode session ID to attach to.
+    ///   - server: The Aside opencode server to attach to.
+    ///   - sessionID: Optional opencode session ID to continue.
     ///   - filePaths: Optional file paths to attach with `-f`.
     static func dispatch(
         prompt: String,
@@ -22,15 +22,15 @@ struct CLIDispatcher {
 
         // Build shell command: echo '<prompt>' | opencode [flags] run
         // `run` MUST be last arg for stdin piping to work.
-        var flags = ""
+        var flags = " --attach \(server.attachTarget)"
 
         if let sessionID, !sessionID.isEmpty {
-            // Existing session: attach to server + resume session
-            flags += " --attach \(server.attachTarget)"
             flags += " --session \(shellQuote(sessionID))"
         }
-        // New sessions: no --attach (it requires --session).
-        // Running locally with cwd set still syncs via OpenCode Desktop.
+
+        if let workingDirectory, !workingDirectory.isEmpty {
+            flags += " --dir \(shellQuote(workingDirectory))"
+        }
 
         for path in filePaths {
             flags += " --file=\(shellQuote(path))"
@@ -51,13 +51,11 @@ struct CLIDispatcher {
             }
         }
 
-        // Inherit user's shell environment for PATH, add auth credentials
+        // Inherit user's shell environment for PATH
         var env = ProcessInfo.processInfo.environment
         if let path = env["PATH"] {
             env["PATH"] = "\(home)/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:\(path)"
         }
-        env["OPENCODE_SERVER_USERNAME"] = server.username
-        env["OPENCODE_SERVER_PASSWORD"] = server.password
         process.environment = env
 
         // Capture stderr to log errors

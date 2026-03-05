@@ -273,8 +273,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func attachWithCLI() {
-        guard let server = store.context.server else { return }
-        let command = "opencode attach \(server.attachTarget) -p \(server.password)"
+        guard store.context.server != nil else { return }
+        let command = "opencode attach localhost:\(OpenCodeService.port)"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
         NSApp.hide(nil)
@@ -302,7 +302,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quit() {
         hotkeyService.stop()
-        openCodeService.stopDiscovery()
+        openCodeService.stopDiscovery()  // Also terminates our opencode serve process
         for token in appObserverTokens {
             NotificationCenter.default.removeObserver(token)
         }
