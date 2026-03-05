@@ -203,28 +203,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             )
             attachItem.image = NSImage(systemSymbolName: "keyboard", accessibilityDescription: nil)
 
+            // Placeholder submenu while loading
             let submenu = NSMenu()
             attachItem.submenu = submenu
-
-            // Populate async — show placeholder while loading
             let loadingItem = NSMenuItem(title: "Loading…", action: nil, keyEquivalent: "")
             loadingItem.isEnabled = false
             submenu.addItem(loadingItem)
 
             Task {
-                let projects = await self.fetchProjects()
-                submenu.removeAllItems()
-                if projects.isEmpty {
+                let allProjects = await self.fetchProjects()
+                let oneWeekAgo = Date().addingTimeInterval(-7 * 86400)
+                var projects = allProjects.filter { $0.updatedAt >= oneWeekAgo }
+                if projects.isEmpty, let first = allProjects.first { projects = [first] } // at least 1
+
+                if projects.count == 1 {
+                    // Single project — no flyout, attach directly on click
+                    attachItem.submenu = nil
+                    attachItem.action = #selector(self.attachToProject(_:))
+                    attachItem.target = self
+                    attachItem.representedObject = projects[0].worktree
+                } else if projects.isEmpty {
+                    submenu.removeAllItems()
                     let emptyItem = NSMenuItem(title: "No projects", action: nil, keyEquivalent: "")
                     emptyItem.isEnabled = false
                     submenu.addItem(emptyItem)
                 } else {
+                    submenu.removeAllItems()
                     for project in projects {
-                        let dir = Session.abbreviateHome(in: project.worktree)
-                        let title = "\(dir)  \(project.timeAgo)"
-                        let item = NSMenuItem(title: title, action: #selector(self.attachToProject(_:)), keyEquivalent: "")
-                        item.target = self
-                        item.representedObject = project.worktree
+                        let item = self.makeProjectMenuItem(project)
                         submenu.addItem(item)
                     }
                 }
@@ -307,6 +313,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             self?.pasteAndEnter()
         }
+    }
+
+    private func makeProjectMenuItem(_ project: ProjectInfo) -> NSMenuItem {
+        let dir = Session.abbreviateHome(in: project.worktree)
+        let timeAgo = project.timeAgo
+
+        // Use a tab character to right-align the time, like keyboard shortcuts
+        let title = "\(dir)\t\(timeAgo)"
+        let item = NSMenuItem(title: title, action: #selector(attachToProject(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = project.worktree
+
+        // Styled: dir normal, time muted
+        let attrTitle = NSMutableAttributedString()
+        attrTitle.append(NSAttributedString(string: dir, attributes: [
+            .font: NSFont.menuFont(ofSize: 13)
+        ]))
+        attrTitle.append(NSAttributedString(string: "\t\(timeAgo)", attributes: [
+            .font: NSFont.menuFont(ofSize: 11),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]))
+        item.attributedTitle = attrTitle
+
+        return item
     }
 
     private struct ProjectInfo {
