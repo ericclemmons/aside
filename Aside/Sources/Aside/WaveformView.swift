@@ -15,32 +15,33 @@ struct WaveformView: View {
     @State private var textScrollID = UUID()
 
     private var hasText: Bool { !transcribedText.isEmpty && !isEnhancing }
-    private var textOverflows: Bool { transcribedText.count > 20 }
+    private var textOverflows: Bool { transcribedText.count > 35 }
 
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack {
             if isEnhancing {
                 enhancingRow
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
             } else {
-                HStack(spacing: 6) {
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.6))
-
-                    WaveformBanner(audioLevel: audioLevel, liveMode: true)
-                        .frame(height: 24)
-                        .clipped()
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
+                WaveformBanner(audioLevel: audioLevel, liveMode: true)
+                    .frame(height: 44)
+                    .clipped()
+                    .mask(
+                        HStack(spacing: 0) {
+                            LinearGradient(colors: [.clear, .white], startPoint: .leading, endPoint: .trailing)
+                                .frame(width: 24)
+                            Color.white
+                            LinearGradient(colors: [.white, .clear], startPoint: .leading, endPoint: .trailing)
+                                .frame(width: 24)
+                        }
+                    )
+                    .opacity(hasText ? 0.6 : 1.0)
 
                 if hasText {
                     transcriptionText
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 8)
-                        .padding(.top, 0)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
                 }
             }
         }
@@ -53,12 +54,12 @@ struct WaveformView: View {
                 )
         )
         .clipShape(Capsule())
-        .frame(maxWidth: hasText ? 200 : 160)
+        .frame(maxWidth: hasText ? 320 : 200)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hasText)
         .animation(.easeInOut(duration: 0.25), value: isEnhancing)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .offset(y: appeared ? 0 : -20)
-        .scaleEffect(appeared ? 1.0 : 0.8, anchor: .top)
+        .frame(maxWidth: .infinity)
+        .offset(y: appeared ? 0 : 20)
+        .scaleEffect(appeared ? 1.0 : 0.8, anchor: .bottom)
         .opacity(appeared ? 1.0 : 0.0)
         .animation(.spring(response: 0.4, dampingFraction: 0.65), value: appeared)
         .onAppear {
@@ -121,7 +122,7 @@ struct WaveformView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
                     Text(transcribedText)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.85))
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)

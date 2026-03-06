@@ -8,6 +8,8 @@ struct WaveformBanner: View {
     /// false = always-on idle animation (welcome screen)
     /// true  = flat at silence, driven by mic (mic/speech screens)
     var liveMode: Bool = false
+    /// Smaller blur radii and softer envelope for pill-sized canvases.
+    var compact: Bool = false
 
     @State private var phase: Double = 0
     @State private var breathePhase: Double = 0
@@ -46,10 +48,17 @@ struct WaveformBanner: View {
             let halfH = midY * 0.88
             let steps = 220
 
+            // Compact mode: center bulge, flatline at edges
+            let gaussianSpread = compact ? 0.42 : 0.52
+            let fillBlur: CGFloat  = compact ? 1.0 : 3.0
+            let haloBlur: CGFloat  = compact ? 3.0 : 10.0
+            let midBlur: CGFloat   = compact ? 1.0 : 4.0
+            let haloWidth: CGFloat = compact ? 3.0 : 8.0
+            let midWidth: CGFloat  = compact ? 1.5 : 3.0
+            let fillOpacityScale   = compact ? 0.15 : 1.0
+
             let ampScale     = liveMode ? pow(smoothedLevel, 0.35) : 1.0 + smoothedLevel * 0.6
             let lineAmpScale = liveMode ? pow(lineLevel,     0.25) : 0.20 + lineLevel * 0.3
-            let fillFlatness = pow(smoothedLevel, 2.5)
-            let lineFlatness = pow(lineLevel,     2.5)
 
             for layer in colorLayers {
                 var top = [CGPoint](), bot = [CGPoint]()
@@ -57,8 +66,7 @@ struct WaveformBanner: View {
                     let t        = Double(i) / Double(steps)
                     let x        = CGFloat(t) * size.width
                     let n        = (t - 0.5) * 4.8
-                    let gaussian = exp(-n * n * 0.52)
-                    let env      = gaussian + (1.0 - gaussian) * fillFlatness
+                    let env = exp(-n * n * gaussianSpread)
                     let dy  = CGFloat(sin(t * .pi * 2 * layer.freq + phase * layer.speed + layer.offset)
                                       * layer.amp * min(env * ampScale, 1.0)) * halfH
                     top.append(CGPoint(x: x, y: midY - dy))
@@ -70,8 +78,8 @@ struct WaveformBanner: View {
                 bot.reversed().forEach  { path.addLine(to: $0) }
                 path.closeSubpath()
                 var ctx = context
-                ctx.opacity = layer.opacity
-                ctx.addFilter(.blur(radius: 3))
+                ctx.opacity = layer.opacity * fillOpacityScale
+                ctx.addFilter(.blur(radius: fillBlur))
                 ctx.fill(path, with: .linearGradient(
                     gradient,
                     startPoint: CGPoint(x: 0,          y: midY),
@@ -87,20 +95,24 @@ struct WaveformBanner: View {
                     let t        = Double(j) / Double(steps)
                     let x        = CGFloat(t) * size.width
                     let n        = (t - 0.5) * 4.8
-                    let gaussian = exp(-n * n * 0.52)
-                    let env      = gaussian + (1.0 - gaussian) * lineFlatness
+                    let env = exp(-n * n * gaussianSpread)
                     let y   = midY - CGFloat(sin(t * .pi * 2 * line.freq + phase * line.speed + line.offset)
                                              * line.amp * min(env * effectiveScale, 1.0)) * halfH
                     if j == 0 { path.move(to: CGPoint(x: x, y: y)) }
                     else       { path.addLine(to: CGPoint(x: x, y: y)) }
                 }
-                var halo = context; halo.opacity = line.opacity * 0.25
-                halo.addFilter(.blur(radius: 10))
-                halo.stroke(path, with: .color(.white), style: StrokeStyle(lineWidth: 8, lineCap: .round))
-                var mid = context; mid.opacity = line.opacity * 0.45
-                mid.addFilter(.blur(radius: 4))
-                mid.stroke(path, with: .color(.white), style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                var core = context; core.opacity = line.opacity * 0.6
+                // Line brightness scales with volume (dim at silence → full white at max)
+                let volumeBrightness = liveMode ? (0.15 + 0.85 * lineLevel) : 1.0
+                let haloOpacity = (compact ? line.opacity * 0.35 : line.opacity * 0.25) * volumeBrightness
+                let midOpacity  = (compact ? line.opacity * 0.6  : line.opacity * 0.45) * volumeBrightness
+                let coreOpacity = (compact ? line.opacity * 0.85 : line.opacity * 0.6)  * volumeBrightness
+                var halo = context; halo.opacity = haloOpacity
+                halo.addFilter(.blur(radius: haloBlur))
+                halo.stroke(path, with: .color(.white), style: StrokeStyle(lineWidth: haloWidth, lineCap: .round))
+                var mid = context; mid.opacity = midOpacity
+                mid.addFilter(.blur(radius: midBlur))
+                mid.stroke(path, with: .color(.white), style: StrokeStyle(lineWidth: midWidth, lineCap: .round))
+                var core = context; core.opacity = coreOpacity
                 core.addFilter(.blur(radius: 0.5))
                 core.stroke(path, with: .color(.white), style: StrokeStyle(lineWidth: 1, lineCap: .round))
             }
@@ -114,18 +126,35 @@ struct WaveformBanner: View {
     private func startAnimating() {
         animTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
             Task { @MainActor in
-                phase += 0.038 + smoothedLevel * 0.08
-                breathePhase += 0.19 + lineLevel * 0.30
-                let target = Double(currentAudioLevel)
-                if target > smoothedLevel {
-                    smoothedLevel = smoothedLevel * 0.40 + target * 0.60
+                if compact {
+                    // Slower, smoother animation for pill overlay
+                    phase += 0.02 + smoothedLevel * 0.04
+                    breathePhase += 0.08 + lineLevel * 0.12
+                    let target = Double(currentAudioLevel)
+                    if target > smoothedLevel {
+                        smoothedLevel = smoothedLevel * 0.70 + target * 0.30
+                    } else {
+                        smoothedLevel = smoothedLevel * 0.92 + target * 0.08
+                    }
+                    if target > lineLevel {
+                        lineLevel = lineLevel * 0.60 + target * 0.40
+                    } else {
+                        lineLevel = lineLevel * 0.88 + target * 0.12
+                    }
                 } else {
-                    smoothedLevel = smoothedLevel * 0.76 + target * 0.24
-                }
-                if target > lineLevel {
-                    lineLevel = lineLevel * 0.25 + target * 0.75
-                } else {
-                    lineLevel = lineLevel * 0.64 + target * 0.36
+                    phase += 0.038 + smoothedLevel * 0.08
+                    breathePhase += 0.19 + lineLevel * 0.30
+                    let target = Double(currentAudioLevel)
+                    if target > smoothedLevel {
+                        smoothedLevel = smoothedLevel * 0.40 + target * 0.60
+                    } else {
+                        smoothedLevel = smoothedLevel * 0.76 + target * 0.24
+                    }
+                    if target > lineLevel {
+                        lineLevel = lineLevel * 0.25 + target * 0.75
+                    } else {
+                        lineLevel = lineLevel * 0.64 + target * 0.36
+                    }
                 }
             }
         }

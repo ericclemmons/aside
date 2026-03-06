@@ -116,14 +116,14 @@ class RecordingOverlayWindow: NSPanel {
 
                 case .waveform:
                     self.removeMonitors()
-                    self.positionAtBottom()
+                    self.positionWindow()
                     self.ignoresMouseEvents = true
                     self.alphaValue = 1
                     self.orderFront(nil)
 
                 case .picker:
                     guard let state else { return }
-                    self.positionPickerAtBottom()
+                    self.positionWindow()
                     self.ignoresMouseEvents = false
                     self.alphaValue = 1
                     NSApp.activate(ignoringOtherApps: true)
@@ -134,32 +134,15 @@ class RecordingOverlayWindow: NSPanel {
             }
     }
 
-    /// Position for picker: bottom-center, auto-height from content, capped at visible screen.
-    private func positionPickerAtBottom() {
+    /// Position window: full visible screen height, bottom-aligned, centered horizontally.
+    /// Content uses SwiftUI bottom alignment — the window is always full height, transparent.
+    private func positionWindow() {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? NSScreen.screens[0]
         let visible = screen.visibleFrame
         let width: CGFloat = 360
-
-        // Set width so hosting view can calculate intrinsic height
-        setFrame(CGRect(x: 0, y: 0, width: width, height: 10000), display: false)
-        hostingView?.layoutSubtreeIfNeeded()
-        let intrinsicHeight = hostingView?.fittingSize.height ?? 400
-        let height = min(intrinsicHeight, visible.height - 30)
-
         let x = visible.midX - width / 2
-        let y = visible.minY + 30
-        setFrame(CGRect(x: x, y: y, width: width, height: height), display: false)
-    }
-
-    /// Recalculate position: bottom-center of the screen containing the mouse cursor.
-    private func positionAtBottom() {
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? NSScreen.screens[0]
-        let size = CGSize(width: 360, height: 120)
-        let x = screen.visibleFrame.midX - size.width / 2
-        let y = screen.visibleFrame.minY + 30
-        setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: false)
+        setFrame(CGRect(x: x, y: visible.minY, width: width, height: visible.height), display: false)
     }
 
     // MARK: - Monitors
@@ -255,7 +238,7 @@ private struct OverlayContent: View {
     @ObservedObject var state: OverlayState
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
             switch state.mode {
             case .hidden:
                 EmptyView()
@@ -266,12 +249,13 @@ private struct OverlayContent: View {
                     transcribedText: state.transcribedText,
                     isEnhancing: state.isEnhancing
                 )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             case .picker:
                 DispatchPickerView(state: state)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
+        .padding(.bottom, 30)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: state.mode)
     }
 }
@@ -339,7 +323,6 @@ private struct DispatchPickerView: View {
                         .strokeBorder(.white.opacity(0.12), lineWidth: 1)
                 )
         )
-        .frame(maxWidth: 360)
         .scaleEffect(appeared ? 1.0 : 0.9, anchor: .bottom)
         .opacity(appeared ? 1.0 : 0.0)
         .onAppear {

@@ -18,7 +18,7 @@ class OpenCodeConfig: ObservableObject {
         }
     }
 
-    private nonisolated static func findServer() -> DiscoveredServer? {
+    nonisolated static func findServer() -> DiscoveredServer? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
         process.arguments = ["ewwA", "-o", "pid,command"]
