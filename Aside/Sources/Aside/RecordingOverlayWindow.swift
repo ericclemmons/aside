@@ -300,30 +300,28 @@ private struct DispatchPickerView: View {
             }
 
             // Destination list
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 2) {
-                    ForEach(Array(state.destinations.enumerated()), id: \.element.id) { index, dest in
-                        DestinationRow(
-                            destination: dest,
-                            isSelected: dest.isSelectable && index == state.selectedIndex,
-                            isHovered: hoveredIndex == index
-                        )
-                        .onHover { hovering in
-                            if hovering && dest.isSelectable {
-                                hoveredIndex = index
-                            } else if hoveredIndex == index {
-                                hoveredIndex = nil
-                            }
-                        }
-                        .onTapGesture {
-                            guard dest.isSelectable else { return }
-                            state.selectedIndex = index
-                            state.confirmSelection()
+            VStack(spacing: 2) {
+                ForEach(Array(state.destinations.enumerated()), id: \.element.id) { index, dest in
+                    DestinationRow(
+                        destination: dest,
+                        isSelected: dest.isSelectable && index == state.selectedIndex,
+                        isHovered: hoveredIndex == index
+                    )
+                    .onHover { hovering in
+                        if hovering && dest.isSelectable {
+                            hoveredIndex = index
+                        } else if hoveredIndex == index {
+                            hoveredIndex = nil
                         }
                     }
+                    .onTapGesture {
+                        guard dest.isSelectable else { return }
+                        state.selectedIndex = index
+                        state.confirmSelection()
+                    }
                 }
-                .padding(.horizontal, 6)
             }
+            .padding(.horizontal, 6)
 
             // Hints
             HStack(spacing: 12) {
