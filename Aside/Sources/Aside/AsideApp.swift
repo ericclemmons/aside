@@ -125,7 +125,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.overlayState.audioLevel = ctx.audioLevel
                 self.overlayState.isEnhancing = ctx.isEnhancing
                 self.overlayState.screenshotCount = ctx.screenshotPaths.count
-                if !ctx.destinations.isEmpty {
+                if !ctx.destinations.isEmpty && self.overlayState.destinations.isEmpty {
                     self.overlayState.destinations = ctx.destinations
                     self.overlayState.selectedIndex = ctx.selectedDestinationIndex
                 }
