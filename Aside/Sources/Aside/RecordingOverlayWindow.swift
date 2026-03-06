@@ -247,7 +247,7 @@ private struct OverlayContent: View {
     @ObservedObject var state: OverlayState
 
     var body: some View {
-        VStack(spacing: 0) {
+        Group {
             switch state.mode {
             case .hidden:
                 EmptyView()
@@ -260,13 +260,12 @@ private struct OverlayContent: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             case .picker:
-                Spacer()
                 DispatchPickerView(state: state)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
                     .padding(.bottom, 30)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: state.mode)
     }
 }
