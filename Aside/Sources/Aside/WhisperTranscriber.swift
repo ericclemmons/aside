@@ -10,7 +10,6 @@ enum WhisperModelVariant: String, CaseIterable, Identifiable {
     case tiny
     case base
     case small
-    case largev3turbo
 
     var id: String { rawValue }
 
@@ -20,7 +19,6 @@ enum WhisperModelVariant: String, CaseIterable, Identifiable {
         case .tiny: return "tiny"
         case .base: return "base"
         case .small: return "small"
-        case .largev3turbo: return "large-v3-turbo"
         }
     }
 
@@ -29,7 +27,6 @@ enum WhisperModelVariant: String, CaseIterable, Identifiable {
         case .tiny: return "Tiny"
         case .base: return "Base"
         case .small: return "Small"
-        case .largev3turbo: return "Large v3 Turbo"
         }
     }
 
@@ -38,7 +35,6 @@ enum WhisperModelVariant: String, CaseIterable, Identifiable {
         case .tiny: return "~75 MB"
         case .base: return "~142 MB"
         case .small: return "~466 MB"
-        case .largev3turbo: return "~1.5 GB"
         }
     }
 
@@ -47,7 +43,6 @@ enum WhisperModelVariant: String, CaseIterable, Identifiable {
         case .tiny: return "Fastest, good for quick notes"
         case .base: return "Balanced speed and accuracy"
         case .small: return "High accuracy, moderate speed"
-        case .largev3turbo: return "Best accuracy, requires more memory"
         }
     }
 }

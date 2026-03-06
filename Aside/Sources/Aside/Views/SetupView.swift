@@ -42,6 +42,11 @@ struct SetupView: View {
             .padding(.horizontal, 32)
             .padding(.bottom, 20)
 
+            // Engine selection
+            EngineSelectionView()
+                .padding(.horizontal, 32)
+                .padding(.bottom, 20)
+
             // Get Started button — only enabled when all permissions granted
             Button(action: { store.send(.allPermissionsGranted) }) {
                 Text("Get Started")
@@ -102,6 +107,8 @@ struct SetupView: View {
         .padding(.vertical, 4)
     }
 
+    // MARK: - OpenCode Row
+
     private var openCodeRow: some View {
         HStack(spacing: 12) {
             Group {
@@ -145,5 +152,73 @@ struct SetupView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Engine Selection (Setup)
+
+private struct EngineSelectionView: View {
+    @AppStorage(AppPreferenceKey.transcriptionEngine) private var engineRaw = TranscriptionEngine.dictation.rawValue
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Transcription Engine")
+                .font(.system(size: 13, weight: .medium))
+
+            ForEach(TranscriptionEngine.allCases) { engine in
+                engineCard(engine)
+            }
+        }
+    }
+
+    private func engineCard(_ engine: TranscriptionEngine) -> some View {
+        let isSelected = engineRaw == engine.rawValue
+        return Button {
+            engineRaw = engine.rawValue
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: engineIcon(engine))
+                    .font(.system(size: 16))
+                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    .frame(width: 20)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(engine.title)
+                        .font(.system(size: 13, weight: isSelected ? .medium : .regular))
+                    Text(engine.description)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Color.accentColor)
+                        .font(.system(size: 16))
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? Color.accentColor.opacity(0.1) : .clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.3) : Color.gray.opacity(0.2), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func engineIcon(_ engine: TranscriptionEngine) -> String {
+        switch engine {
+        case .dictation: return "mic.fill"
+        case .whisper: return "waveform"
+        case .parakeet: return "bird"
+        }
     }
 }

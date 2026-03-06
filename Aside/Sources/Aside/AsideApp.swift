@@ -13,7 +13,7 @@ struct AsideApp: App {
         Settings {
             SettingsView(
                 whisperModelManager: appDelegate.transcriptionService.whisperModelManager,
-                historyManager: appDelegate.historyManager,
+                parakeetModelManager: appDelegate.transcriptionService.parakeetModelManager,
                 customWordsManager: appDelegate.customWordsManager
             )
             .frame(minWidth: 480, maxWidth: 520)
@@ -268,7 +268,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let contentView = SettingsView(
             whisperModelManager: transcriptionService.whisperModelManager,
-            historyManager: historyManager,
+            parakeetModelManager: transcriptionService.parakeetModelManager,
             customWordsManager: customWordsManager
         )
         .frame(minWidth: 480, maxWidth: 520)

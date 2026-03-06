@@ -1,12 +1,14 @@
 import Foundation
 import AsideCore
 
-/// Wraps both SpeechTranscriber and WhisperTranscriber behind a unified interface.
+/// Wraps SpeechTranscriber, WhisperTranscriber, and ParakeetTranscriber behind a unified interface.
 @MainActor
 final class TranscriptionService {
     private let speechTranscriber = SpeechTranscriber()
     private var whisperTranscriber: WhisperTranscriber?
+    private var parakeetTranscriber: ParakeetTranscriber?
     let whisperModelManager = WhisperModelManager()
+    let parakeetModelManager = ParakeetModelManager()
 
     var onTranscriptionUpdate: ((String, Float) -> Void)?
     var onTranscriptionFinished: ((String) -> Void)?
@@ -14,25 +16,40 @@ final class TranscriptionService {
     private var updateTimer: Timer?
     private var activeEngine: TranscriptionEngine = .dictation
 
+    /// Which transcriber is actually running (may differ from activeEngine if model wasn't ready)
+    private enum ActiveTranscriber { case speech, whisper, parakeet }
+    private var activeTranscriber: ActiveTranscriber = .speech
+
     var isRecording: Bool {
-        if activeEngine == .whisper, let w = whisperTranscriber { return w.isRecording }
-        return speechTranscriber.isRecording
+        switch activeTranscriber {
+        case .whisper: return whisperTranscriber?.isRecording ?? false
+        case .parakeet: return parakeetTranscriber?.isRecording ?? false
+        case .speech: return speechTranscriber.isRecording
+        }
     }
 
     var audioLevel: Float {
-        if activeEngine == .whisper, let w = whisperTranscriber { return w.audioLevel }
-        return speechTranscriber.audioLevel
+        switch activeTranscriber {
+        case .whisper: return whisperTranscriber?.audioLevel ?? 0
+        case .parakeet: return parakeetTranscriber?.audioLevel ?? 0
+        case .speech: return speechTranscriber.audioLevel
+        }
     }
 
     var transcribedText: String {
-        if activeEngine == .whisper, let w = whisperTranscriber { return w.transcribedText }
-        return speechTranscriber.transcribedText
+        switch activeTranscriber {
+        case .whisper: return whisperTranscriber?.transcribedText ?? ""
+        case .parakeet: return parakeetTranscriber?.transcribedText ?? ""
+        case .speech: return speechTranscriber.transcribedText
+        }
     }
 
     func startRecording(engine: TranscriptionEngine, customWords: [String]) {
         activeEngine = engine
 
-        if engine == .whisper, isWhisperReady {
+        switch engine {
+        case .whisper where isWhisperReady:
+            activeTranscriber = .whisper
             let whisper = whisperTranscriber ?? WhisperTranscriber(modelManager: whisperModelManager)
             whisperTranscriber = whisper
             whisper.customWords = customWords
@@ -44,7 +61,23 @@ final class TranscriptionService {
                 guard let w = whisper else { return (0, "") }
                 return (w.audioLevel, w.transcribedText)
             }
-        } else {
+
+        case .parakeet where isParakeetReady:
+            activeTranscriber = .parakeet
+            let parakeet = parakeetTranscriber ?? ParakeetTranscriber(modelManager: parakeetModelManager)
+            parakeetTranscriber = parakeet
+            parakeet.customWords = customWords
+            parakeet.onTranscriptionFinished = { [weak self] text in
+                self?.onTranscriptionFinished?(text)
+            }
+            parakeet.startRecording()
+            startUpdatePolling { [weak parakeet] in
+                guard let p = parakeet else { return (0, "") }
+                return (p.audioLevel, p.transcribedText)
+            }
+
+        default:
+            activeTranscriber = .speech
             speechTranscriber.customWords = customWords
             speechTranscriber.onTranscriptionFinished = { [weak self] text in
                 self?.onTranscriptionFinished?(text)
@@ -59,19 +92,26 @@ final class TranscriptionService {
 
     func stopRecording() {
         stopUpdatePolling()
-        if activeEngine == .whisper, isWhisperReady {
+        switch activeTranscriber {
+        case .whisper:
             whisperTranscriber?.stopRecording()
-        } else {
+        case .parakeet:
+            parakeetTranscriber?.stopRecording()
+        case .speech:
             speechTranscriber.stopRecording()
         }
     }
 
     func cancelRecording() {
         stopUpdatePolling()
-        if activeEngine == .whisper, isWhisperReady {
+        switch activeTranscriber {
+        case .whisper:
             whisperTranscriber?.onTranscriptionFinished = nil
             whisperTranscriber?.stopRecording()
-        } else {
+        case .parakeet:
+            parakeetTranscriber?.onTranscriptionFinished = nil
+            parakeetTranscriber?.stopRecording()
+        case .speech:
             speechTranscriber.onTranscriptionFinished = nil
             speechTranscriber.stopRecording()
         }
@@ -81,6 +121,15 @@ final class TranscriptionService {
 
     private var isWhisperReady: Bool {
         switch whisperModelManager.state {
+        case .downloaded, .ready, .loading:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var isParakeetReady: Bool {
+        switch parakeetModelManager.state {
         case .downloaded, .ready, .loading:
             return true
         default:

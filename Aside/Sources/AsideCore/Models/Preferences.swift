@@ -3,6 +3,7 @@ import Foundation
 public enum TranscriptionEngine: String, CaseIterable, Identifiable, Sendable {
     case dictation
     case whisper
+    case parakeet
 
     public var id: String { rawValue }
 
@@ -10,6 +11,7 @@ public enum TranscriptionEngine: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .dictation: return "Direct Dictation"
         case .whisper: return "Whisper (OpenAI)"
+        case .parakeet: return "Parakeet (NVIDIA)"
         }
     }
 
@@ -17,6 +19,7 @@ public enum TranscriptionEngine: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .dictation: return "Uses Apple's built-in speech recognition. Works immediately with no setup."
         case .whisper: return "Uses OpenAI's Whisper model running locally on your Mac. Requires a one-time download."
+        case .parakeet: return "Uses NVIDIA's Parakeet model running locally. Requires a one-time download."
         }
     }
 }

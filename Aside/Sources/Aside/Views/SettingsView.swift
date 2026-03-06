@@ -6,13 +6,11 @@ import AsideCore
 private enum SettingsTab: String, CaseIterable {
     case general
     case vocabulary
-    case history
 
     var title: String {
         switch self {
         case .general: return "General"
         case .vocabulary: return "Vocabulary"
-        case .history: return "History"
         }
     }
 
@@ -20,7 +18,6 @@ private enum SettingsTab: String, CaseIterable {
         switch self {
         case .general: return "gearshape"
         case .vocabulary: return "text.book.closed"
-        case .history: return "clock.arrow.circlepath"
         }
     }
 }
@@ -29,29 +26,25 @@ private enum SettingsTab: String, CaseIterable {
 
 struct SettingsView: View {
     @ObservedObject var whisperModelManager: WhisperModelManager
-    @ObservedObject var historyManager: TranscriptionHistoryManager
+    @ObservedObject var parakeetModelManager: ParakeetModelManager
     @ObservedObject var customWordsManager: CustomWordsManager
 
     @State private var selectedTab: SettingsTab = .general
 
     var body: some View {
         VStack(spacing: 0) {
-            // Tab bar
             tabBar
-
             Divider()
 
-            // Tab content
             Group {
                 switch selectedTab {
                 case .general:
                     GeneralSettingsView(
-                        whisperModelManager: whisperModelManager
+                        whisperModelManager: whisperModelManager,
+                        parakeetModelManager: parakeetModelManager
                     )
                 case .vocabulary:
                     VocabularySettingsView(customWordsManager: customWordsManager)
-                case .history:
-                    HistorySettingsView(historyManager: historyManager)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -63,30 +56,26 @@ struct SettingsView: View {
     private var tabBar: some View {
         HStack(spacing: 2) {
             ForEach(SettingsTab.allCases, id: \.self) { tab in
-                tabButton(for: tab)
+                Button {
+                    selectedTab = tab
+                } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: tab.icon)
+                            .font(.system(size: 18))
+                            .frame(width: 28, height: 22)
+                        Text(tab.title)
+                            .font(.system(size: 10))
+                    }
+                    .foregroundStyle(selectedTab == tab ? Color.accentColor : .secondary)
+                    .frame(width: 68, height: 46)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .padding(.bottom, 6)
-    }
-
-    private func tabButton(for tab: SettingsTab) -> some View {
-        Button {
-            selectedTab = tab
-        } label: {
-            VStack(spacing: 3) {
-                Image(systemName: tab.icon)
-                    .font(.system(size: 18))
-                    .frame(width: 28, height: 22)
-                Text(tab.title)
-                    .font(.system(size: 10))
-            }
-            .foregroundStyle(selectedTab == tab ? Color.accentColor : .secondary)
-            .frame(width: 68, height: 46)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -99,6 +88,7 @@ private struct GeneralSettingsView: View {
     @AppStorage(AppPreferenceKey.hotkeyMode) private var hotkeyModeRaw = HotkeyMode.holdToTalk.rawValue
 
     @ObservedObject var whisperModelManager: WhisperModelManager
+    @ObservedObject var parakeetModelManager: ParakeetModelManager
 
     private var selectedEngine: TranscriptionEngine {
         TranscriptionEngine(rawValue: engineRaw) ?? .dictation
@@ -115,28 +105,6 @@ private struct GeneralSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                // MARK: Hotkey
-                formRow("Hotkey mode:") {
-                    Picker("Mode", selection: $hotkeyModeRaw) {
-                        ForEach(HotkeyMode.allCases) { mode in
-                            Text(mode.title).tag(mode.rawValue)
-                        }
-                    }
-                    .labelsHidden()
-                }
-
-                formRow("Shortcut:") {
-                    KeyCapView("Right ⌥")
-                }
-
-                formRow("") {
-                    Text(selectedHotkeyMode.description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                sectionDivider()
-
                 // MARK: Transcription
                 formRow("Transcription engine:") {
                     Picker("Engine", selection: $engineRaw) {
@@ -158,7 +126,7 @@ private struct GeneralSettingsView: View {
                             }
                         }
                         .labelsHidden()
-                        .disabled(isModelBusy)
+                        .disabled(isWhisperBusy)
                     }
 
                     formRow("") {
@@ -167,6 +135,17 @@ private struct GeneralSettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             whisperModelStatusRow
+                        }
+                    }
+                }
+
+                if selectedEngine == .parakeet {
+                    formRow("") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Parakeet TDT 0.6B v3 — top-ranked accuracy, blazing fast. English only.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            parakeetModelStatusRow
                         }
                     }
                 }
@@ -181,6 +160,7 @@ private struct GeneralSettingsView: View {
                             .tag(EnhancementMode.appleIntelligence.rawValue)
                     }
                     .labelsHidden()
+                    .disabled(!appleIntelligenceAvailable)
                 }
 
                 if !appleIntelligenceAvailable {
@@ -256,30 +236,14 @@ private struct GeneralSettingsView: View {
             }
 
         case .downloaded:
-            HStack(spacing: 8) {
-                Label {
-                    HStack(spacing: 4) {
-                        Text("Downloaded")
-                        if !whisperModelManager.modelSizeOnDisk.isEmpty {
-                            Text("(\(whisperModelManager.modelSizeOnDisk))")
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                } icon: {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Button("Remove", role: .destructive) {
+            modelReadyRow(
+                label: "Downloaded",
+                sizeOnDisk: whisperModelManager.modelSizeOnDisk,
+                onRemove: {
                     whisperModelManager.deleteModel()
                     engineRaw = TranscriptionEngine.dictation.rawValue
                 }
-                .controlSize(.small)
-            }
+            )
 
         case .loading:
             HStack(spacing: 6) {
@@ -291,30 +255,14 @@ private struct GeneralSettingsView: View {
             }
 
         case .ready:
-            HStack(spacing: 8) {
-                Label {
-                    HStack(spacing: 4) {
-                        Text("Ready")
-                        if !whisperModelManager.modelSizeOnDisk.isEmpty {
-                            Text("(\(whisperModelManager.modelSizeOnDisk))")
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                } icon: {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Button("Remove", role: .destructive) {
+            modelReadyRow(
+                label: "Ready",
+                sizeOnDisk: whisperModelManager.modelSizeOnDisk,
+                onRemove: {
                     whisperModelManager.deleteModel()
                     engineRaw = TranscriptionEngine.dictation.rawValue
                 }
-                .controlSize(.small)
-            }
+            )
 
         case .error(let message):
             HStack(spacing: 8) {
@@ -331,119 +279,108 @@ private struct GeneralSettingsView: View {
         }
     }
 
-    private var isModelBusy: Bool {
+    private var isWhisperBusy: Bool {
         switch whisperModelManager.state {
-        case .downloading, .loading:
-            return true
-        default:
-            return false
+        case .downloading, .loading: return true
+        default: return false
         }
     }
-}
 
-// MARK: - History Tab
+    // MARK: - Parakeet Model Status
 
-private struct HistorySettingsView: View {
-    @ObservedObject var historyManager: TranscriptionHistoryManager
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if historyManager.records.isEmpty {
-                Spacer()
-                VStack(spacing: 8) {
-                    Image(systemName: "clock")
-                        .font(.system(size: 28))
-                        .foregroundStyle(.quaternary)
-                    Text("No transcriptions yet")
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                    Text("Dictate something and it will appear here.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+    @ViewBuilder
+    private var parakeetModelStatusRow: some View {
+        switch parakeetModelManager.state {
+        case .notDownloaded:
+            HStack(spacing: 8) {
+                Text("Not downloaded (~600 MB)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Download") {
+                    Task { await parakeetModelManager.downloadModel() }
                 }
-                Spacer()
-            } else {
-                // Toolbar row
-                HStack {
-                    Text("\(historyManager.records.count) transcription\(historyManager.records.count == 1 ? "" : "s")")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Clear All", role: .destructive) {
-                        historyManager.clearHistory()
-                    }
+                .controlSize(.small)
+            }
+
+        case .downloading:
+            HStack(spacing: 8) {
+                ProgressView()
                     .controlSize(.small)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-
-                Divider()
-
-                // Records list
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(historyManager.records) { record in
-                            historyRow(for: record)
-
-                            if record.id != historyManager.records.last?.id {
-                                Divider()
-                                    .padding(.leading, 36)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 4)
-                }
-            }
-        }
-    }
-
-    private func historyRow(for record: TranscriptionRecord) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: record.engine == "whisper" ? "waveform" : "mic.fill")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .frame(width: 16, alignment: .center)
-                .padding(.top, 2)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(record.text)
-                    .font(.system(size: 12))
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-
-                HStack(spacing: 6) {
-                    Text(record.timestamp.relativeString)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-
-                    if record.wasEnhanced {
-                        Text("Enhanced")
-                            .font(.caption2)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(
-                                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                    .fill(.blue.opacity(0.12))
-                            )
-                            .foregroundStyle(.blue)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(record.text, forType: .string)
-            } label: {
-                Image(systemName: "doc.on.doc")
+                Text("Downloading…")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .buttonStyle(.borderless)
-            .help("Copy to clipboard")
+
+        case .downloaded:
+            modelReadyRow(
+                label: "Downloaded",
+                sizeOnDisk: parakeetModelManager.modelSizeOnDisk,
+                onRemove: {
+                    parakeetModelManager.deleteModel()
+                    engineRaw = TranscriptionEngine.dictation.rawValue
+                }
+            )
+
+        case .loading:
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Loading model...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+        case .ready:
+            modelReadyRow(
+                label: "Ready",
+                sizeOnDisk: parakeetModelManager.modelSizeOnDisk,
+                onRemove: {
+                    parakeetModelManager.deleteModel()
+                    engineRaw = TranscriptionEngine.dictation.rawValue
+                }
+            )
+
+        case .error(let message):
+            HStack(spacing: 8) {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+
+                Button("Retry") {
+                    parakeetModelManager.deleteModel()
+                    Task { await parakeetModelManager.downloadModel() }
+                }
+                .controlSize(.small)
+            }
         }
-        .padding(.vertical, 8)
+    }
+
+    // MARK: - Shared Model Row
+
+    private func modelReadyRow(label: String, sizeOnDisk: String, onRemove: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            Label {
+                HStack(spacing: 4) {
+                    Text(label)
+                    if !sizeOnDisk.isEmpty {
+                        Text("(\(sizeOnDisk))")
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            } icon: {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Button("Remove", role: .destructive) {
+                onRemove()
+            }
+            .controlSize(.small)
+        }
     }
 }
 
@@ -512,7 +449,6 @@ private struct VocabularySettingsView: View {
 
                 Divider()
 
-                // Footer
                 HStack {
                     Text("\(customWordsManager.words.count) word\(customWordsManager.words.count == 1 ? "" : "s")")
                         .font(.caption)
@@ -575,29 +511,4 @@ private func sectionDivider() -> some View {
     Divider()
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
-}
-
-// MARK: - Key Cap View
-
-private struct KeyCapView: View {
-    let key: String
-
-    init(_ key: String) {
-        self.key = key
-    }
-
-    var body: some View {
-        Text(key)
-            .font(.system(size: 12, weight: .medium))
-            .frame(minWidth: 22, minHeight: 20)
-            .padding(.horizontal, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(.quaternary.opacity(0.5))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .strokeBorder(.quaternary, lineWidth: 1)
-            )
-    }
 }

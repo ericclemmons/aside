@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.12.0"),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.9.0"),
     ],
     targets: [
         .target(
@@ -17,6 +18,7 @@ let package = Package(
             dependencies: [
                 "AsideCore",
                 .product(name: "WhisperKit", package: "WhisperKit"),
+                .product(name: "FluidAudio", package: "FluidAudio"),
             ],
             path: "Sources/Aside",
             exclude: ["Aside.entitlements", "Info.plist"],
