@@ -62,8 +62,9 @@ class SessionManager: ObservableObject {
             var sessions = json.compactMap { obj -> Session? in
                 guard let id = obj["id"] as? String else { return nil }
                 let name = (obj["title"] as? String) ?? id
-                // Timestamps are Unix milliseconds
-                let updatedMs = (obj["updated"] as? Double) ?? (obj["created"] as? Double) ?? 0
+                // Timestamps are Unix milliseconds, nested under "time"
+                let time = obj["time"] as? [String: Any]
+                let updatedMs = (time?["updated"] as? Double) ?? (time?["created"] as? Double) ?? 0
                 let updatedAt = Date(timeIntervalSince1970: updatedMs / 1000.0)
                 let directory = obj["directory"] as? String
                 return Session(id: id, name: name, updatedAt: updatedAt, directory: directory)

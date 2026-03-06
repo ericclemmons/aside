@@ -13,26 +13,14 @@ public struct Session: Identifiable, Equatable, Sendable {
         self.directory = directory
     }
 
-    /// Relative time string: today="3:38 PM", yesterday="Yesterday", this week="Mon", older="Mar 1"
+    /// Relative time string: "2m ago", "3h ago", "1d ago", "2w ago"
     public var timeString: String {
-        let cal = Calendar.current
-        if cal.isDateInToday(updatedAt) {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "h:mm a"
-            return formatter.string(from: updatedAt)
-        }
-        if cal.isDateInYesterday(updatedAt) {
-            return "Yesterday"
-        }
-        let daysAgo = cal.dateComponents([.day], from: updatedAt, to: Date()).day ?? 99
-        if daysAgo < 7 {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "EEE"
-            return formatter.string(from: updatedAt)
-        }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return formatter.string(from: updatedAt)
+        let seconds = Int(Date().timeIntervalSince(updatedAt))
+        if seconds < 60 { return "now" }
+        if seconds < 3600 { return "\(seconds / 60)m ago" }
+        if seconds < 86400 { return "\(seconds / 3600)h ago" }
+        if seconds < 604800 { return "\(seconds / 86400)d ago" }
+        return "\(seconds / 604800)w ago"
     }
 
     /// Replace the user's home directory with ~ for display.

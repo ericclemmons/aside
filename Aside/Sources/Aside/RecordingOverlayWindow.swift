@@ -294,38 +294,29 @@ private struct DispatchPickerView: View {
             }
 
             // Destination list
-            ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 2) {
-                        ForEach(Array(state.destinations.enumerated()), id: \.element.id) { index, dest in
-                            DestinationRow(
-                                destination: dest,
-                                isSelected: dest.isSelectable && index == state.selectedIndex,
-                                isHovered: hoveredIndex == index
-                            )
-                            .id(index)
-                            .onHover { hovering in
-                                if hovering && dest.isSelectable {
-                                    hoveredIndex = index
-                                    state.selectedIndex = index
-                                } else if hoveredIndex == index {
-                                    hoveredIndex = nil
-                                }
-                            }
-                            .onTapGesture {
-                                guard dest.isSelectable else { return }
-                                state.selectedIndex = index
-                                state.confirmSelection()
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 2) {
+                    ForEach(Array(state.destinations.enumerated()), id: \.element.id) { index, dest in
+                        DestinationRow(
+                            destination: dest,
+                            isSelected: dest.isSelectable && index == state.selectedIndex,
+                            isHovered: hoveredIndex == index
+                        )
+                        .onHover { hovering in
+                            if hovering && dest.isSelectable {
+                                hoveredIndex = index
+                            } else if hoveredIndex == index {
+                                hoveredIndex = nil
                             }
                         }
+                        .onTapGesture {
+                            guard dest.isSelectable else { return }
+                            state.selectedIndex = index
+                            state.confirmSelection()
+                        }
                     }
-                    .padding(.horizontal, 6)
                 }
-                .onChange(of: state.selectedIndex) { newIndex in
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        proxy.scrollTo(newIndex, anchor: .center)
-                    }
-                }
+                .padding(.horizontal, 6)
             }
 
             // Hints
@@ -389,7 +380,7 @@ private struct DestinationRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(destination.label)
-                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                    .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(isSelected ? .white : .white.opacity(0.8))
                     .lineLimit(1)
 
