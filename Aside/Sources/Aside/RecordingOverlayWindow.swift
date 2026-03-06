@@ -134,14 +134,14 @@ class RecordingOverlayWindow: NSPanel {
             }
     }
 
-    /// Position for picker: bottom-center, sized for content.
+    /// Position for picker: bottom-center, full visible height (excludes dock & menu bar).
     private func positionPickerAtBottom() {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? NSScreen.screens[0]
-        let size = CGSize(width: 360, height: 340)
-        let x = screen.visibleFrame.midX - size.width / 2
-        let y = screen.visibleFrame.minY + 30
-        setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: false)
+        let visible = screen.visibleFrame
+        let width: CGFloat = 360
+        let x = visible.midX - width / 2
+        setFrame(CGRect(x: x, y: visible.minY, width: width, height: visible.height), display: false)
     }
 
     /// Recalculate position: bottom-center of the screen containing the mouse cursor.
