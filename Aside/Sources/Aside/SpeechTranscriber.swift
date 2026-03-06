@@ -42,8 +42,11 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
     }
 
     func startRecording() {
-        guard !isRecording else { return }
-        guard let recognizer = speechRecognizer, recognizer.isAvailable else { return }
+        guard !isRecording else { NSLog("[SpeechTranscriber] Already recording, skipping"); return }
+        guard let recognizer = speechRecognizer, recognizer.isAvailable else {
+            NSLog("[SpeechTranscriber] Recognizer unavailable (nil=%d, available=%d)", speechRecognizer == nil ? 1 : 0, speechRecognizer?.isAvailable == true ? 1 : 0)
+            return
+        }
 
         sessionID &+= 1
         cleanupSessionState()
@@ -54,8 +57,9 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
         do {
             try startSpeechRecognition(recognizer: recognizer)
             isRecording = true
+            NSLog("[SpeechTranscriber] Recording started successfully")
         } catch {
-            print("Failed to start recording: \(error)")
+            NSLog("[SpeechTranscriber] Failed to start recording: %@", error.localizedDescription)
             cleanupSessionState()
         }
     }
@@ -98,8 +102,9 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
     }
 
     private func finishRecognition(with text: String) {
-        guard !hasDeliveredFinalResult else { return }
+        guard !hasDeliveredFinalResult else { NSLog("[SpeechTranscriber] Already delivered final, skipping"); return }
         hasDeliveredFinalResult = true
+        NSLog("[SpeechTranscriber] Finishing recognition with text: '%@'", text)
 
         finalizeTimeoutTask?.cancel()
         finalizeTimeoutTask = nil
@@ -159,8 +164,9 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
 
             if let result {
                 let text = result.bestTranscription.formattedString
+                NSLog("[SpeechTranscriber] Got result: isFinal=%d, text='%@'", result.isFinal ? 1 : 0, text)
                 Task { @MainActor in
-                    guard self.sessionID == currentSession else { return }
+                    guard self.sessionID == currentSession else { NSLog("[SpeechTranscriber] Stale session, ignoring"); return }
                     self.transcribedText = text
                     if result.isFinal {
                         self.finishRecognition(with: text)
@@ -170,9 +176,7 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
 
             if let error {
                 let nsError = error as NSError
-                if nsError.domain != "kAFAssistantErrorDomain" || (nsError.code != 216 && nsError.code != 1110) {
-                    print("Recognition error: \(error)")
-                }
+                NSLog("[SpeechTranscriber] Recognition error: domain=%@ code=%d desc=%@", nsError.domain, nsError.code, nsError.localizedDescription)
 
                 Task { @MainActor in
                     guard self.sessionID == currentSession else { return }

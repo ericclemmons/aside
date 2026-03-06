@@ -31,7 +31,8 @@ release: build-release
 install:
 	@BIN_PATH=$$(cd "$(ASIDE_DIR)" && swift build --show-bin-path)/Aside; \
 	cp "$$BIN_PATH" "$(ASIDE_BUNDLE_BIN)"; \
-	codesign --force --deep --sign - --identifier com.ericclemmons.aside.app "$(ASIDE_APP)"
+	codesign --force --deep --sign "Developer ID Application: Eric Clemmons (D3TJHQZD9N)" --identifier com.ericclemmons.aside.app "$(ASIDE_APP)"; \
+	/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f "$(ASIDE_APP)"
 
 run:
 	pkill -x Aside 2>/dev/null || true
