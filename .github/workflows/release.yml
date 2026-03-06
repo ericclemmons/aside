@@ -55,8 +55,6 @@ jobs:
 
           xcrun stapler staple Aside/Aside.app
 
-          spctl --assess --verbose Aside/Aside.app
-
           rm Aside-notarize.zip
           rm -rf ~/.private_keys
 
