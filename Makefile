@@ -4,13 +4,29 @@ ASIDE_DIR := Aside
 ASIDE_APP := $(ASIDE_DIR)/Aside.app
 ASIDE_BUNDLE_BIN := $(ASIDE_APP)/Contents/MacOS/Aside
 
-.PHONY: build install run dev watch test test-one clean
+.PHONY: build build-release release install run dev watch test test-one clean
 
 build:
 	cd "$(ASIDE_DIR)" && swift build
 
 build-release:
 	cd "$(ASIDE_DIR)" && swift build -c release
+
+release: build-release
+	@rm -rf "$(ASIDE_APP)"
+	@mkdir -p "$(ASIDE_APP)/Contents/MacOS" "$(ASIDE_APP)/Contents/Resources"
+	@cp "$$(cd "$(ASIDE_DIR)" && swift build -c release --show-bin-path)/Aside" "$(ASIDE_BUNDLE_BIN)"
+	@strip "$(ASIDE_BUNDLE_BIN)"
+	@cp "$(ASIDE_DIR)/Sources/Aside/Info.plist" "$(ASIDE_APP)/Contents/Info.plist"
+	@cp "$(ASIDE_DIR)/AppIcon.icns" "$(ASIDE_APP)/Contents/Resources/AppIcon.icns"
+	@if [ -n "$(CODESIGN_IDENTITY)" ]; then \
+		codesign --force --options runtime \
+			--entitlements "$(ASIDE_DIR)/Sources/Aside/Aside.entitlements" \
+			--sign "$(CODESIGN_IDENTITY)" \
+			"$(ASIDE_APP)"; \
+		echo "Signed $(ASIDE_APP) with $(CODESIGN_IDENTITY)"; \
+	fi
+	@echo "Built $(ASIDE_APP) (release)"
 
 install:
 	@BIN_PATH=$$(cd "$(ASIDE_DIR)" && swift build --show-bin-path)/Aside; \
