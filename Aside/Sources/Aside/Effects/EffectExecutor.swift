@@ -192,42 +192,20 @@ final class EffectExecutor {
     // MARK: - Build destination list
 
     private func buildDestinationList() -> [DispatchDestination] {
-        let sessions = store.context.sessions
-        let projectDir = store.context.currentProjectDirectory
-            ?? ProcessInfo.processInfo.environment["HOME"]
-            ?? "/Users/\(NSUserName())"
-
-        // Deduplicate sessions: keep most recent per name+directory
-        var seenKeys = Set<String>()
-        var dedupedSessions: [Session] = []
-        for session in sessions {
-            let key = "\(session.name)|\(session.directory ?? "")"
-            if seenKeys.insert(key).inserted {
-                dedupedSessions.append(session)
-            }
-        }
-
-        // Filter out sessions with "/" as directory
-        dedupedSessions = dedupedSessions.filter { $0.directory != "/" }
+        let sessions = store.context.sessions.filter { $0.directory != "/" }
+        let recentSessions = Array(sessions.prefix(5))
 
         var destinations: [DispatchDestination] = []
 
         // 1. Previous sessions sorted ascending (oldest first, newest near bottom)
-        let recentSessions = Array(dedupedSessions.prefix(5)).reversed()
-        for session in recentSessions {
+        for session in recentSessions.reversed() {
             destinations.append(.openCodeSession(session))
         }
 
-        // 2. Default: New Session in current project dir
-        destinations.append(.newOpenCodeWorkspace(
-            displayDirectory: Session.abbreviateHome(in: projectDir),
-            workingDirectory: projectDir
-        ))
-
-        // 3. New sessions in other workdirs from recent sessions
-        var seenDirs = Set<String>([projectDir])
-        for session in dedupedSessions {
-            guard let dir = session.directory, dir != "/", seenDirs.insert(dir).inserted else { continue }
+        // 2. "New Session" entries from unique workspace directories (deduped, ordered by most recent)
+        var seenDirs = Set<String>()
+        for session in sessions {
+            guard let dir = session.directory, seenDirs.insert(dir).inserted else { continue }
             destinations.append(.newOpenCodeWorkspace(
                 displayDirectory: Session.abbreviateHome(in: dir),
                 workingDirectory: dir

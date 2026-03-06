@@ -45,8 +45,8 @@ public struct DispatchDestination: Identifiable, Equatable, Sendable {
         DispatchDestination(
             id: "opencode-new-\(workingDirectory)",
             kind: .newSessionWorkspace,
-            label: "New Session in \(displayDirectory)",
-            detail: nil,
+            label: "New Session",
+            detail: displayDirectory,
             time: nil,
             sessionID: nil,
             workingDirectory: workingDirectory
