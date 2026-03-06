@@ -5,18 +5,15 @@ import Speech
 import AsideCore
 
 /// Checks and requests TCC permissions.
-///
-/// Standard APIs (AXIsProcessTrusted, CGPreflightScreenCaptureAccess) cache
-/// per-process and return stale values — especially with ad-hoc signing where
-/// each build has a different cdhash. Instead, we test actual capabilities:
-/// - Accessibility: try creating the same .defaultTap CGEvent tap the hotkey needs
-/// - Screen recording: try reading window names from other processes
-/// - Mic/speech: standard status APIs work reliably for these
 @MainActor
 final class PermissionService {
 
     private var accessibilityObserver: NSObjectProtocol?
     private var onAccessibilityChange: (() -> Void)?
+
+    /// After the first CGRequestScreenCaptureAccess() call, subsequent calls
+    /// return live state without showing a prompt. We use this for polling.
+    private var screenRecordingRequested = false
 
     /// Register a callback for when accessibility permission changes.
     func observeAccessibilityChanges(_ handler: @escaping () -> Void) {
@@ -64,7 +61,10 @@ final class PermissionService {
                 }
             }
         case .screenRecording:
-            CGRequestScreenCaptureAccess()
+            if !screenRecordingRequested {
+                screenRecordingRequested = true
+                CGRequestScreenCaptureAccess()
+            }
             return checkScreenRecording()
         }
     }
@@ -90,22 +90,10 @@ final class PermissionService {
         return true
     }
 
-    /// Test if we can read window names from other processes.
-    /// Without screen recording permission, kCGWindowName is absent for other apps.
+    /// Check screen recording permission.
+    /// CGPreflightScreenCaptureAccess is correct at process launch time on Sequoia.
+    /// It does NOT update mid-process — permission changes require app restart.
     private func checkScreenRecording() -> Bool {
-        guard let windowList = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
-        ) as? [[String: Any]] else {
-            return false
-        }
-        let myPID = Int(ProcessInfo.processInfo.processIdentifier)
-        for window in windowList {
-            guard let pid = window[kCGWindowOwnerPID as String] as? Int,
-                  pid != myPID else { continue }
-            if window.keys.contains(kCGWindowName as String) {
-                return true
-            }
-        }
-        return false
+        CGPreflightScreenCaptureAccess()
     }
 }

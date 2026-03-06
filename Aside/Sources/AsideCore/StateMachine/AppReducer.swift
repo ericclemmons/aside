@@ -197,6 +197,16 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
             .hideOverlay
         ])
 
+    case (.dispatching, .keyDown):
+        // Right Option tap dismisses picker (same as Escape)
+        let paths = context.screenshotPaths
+        context.screenshotPaths = []
+        context.transcribedText = ""
+        context.currentPrompt = ""
+        context.destinations = []
+        context.capturedContext = nil
+        return (.idle, [.hideOverlay, .deleteFiles(paths)])
+
     case (.dispatching, .dispatchCancelled):
         let paths = context.screenshotPaths
         context.screenshotPaths = []

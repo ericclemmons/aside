@@ -22,6 +22,8 @@ let package = Package(
             exclude: ["Aside.entitlements", "Info.plist"],
             resources: [
                 .process("Resources"),
+            ],
+            linkerSettings: [
             ]
         ),
         .testTarget(

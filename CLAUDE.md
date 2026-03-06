@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 cd Aside && swift build
 
 # Deploy (must use .app bundle — bare binary silently fails TCC permissions)
-cp .build/arm64-apple-macosx/debug/Aside Aside.app/Contents/MacOS/Aside && codesign --force --deep --sign "Developer ID Application: Eric Clemmons (D3TJHQZD9N)" --identifier com.ericclemmons.aside.app Aside.app && open Aside.app
+cp .build/arm64-apple-macosx/debug/Aside Aside.app/Contents/MacOS/Aside && codesign --force --deep --sign "Developer ID Application: Eric Clemmons (D3TJHQZD9N)" --identifier com.ericclemmons.aside.app Aside.app && /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f Aside.app && open Aside.app
 
 # Watch mode (auto-rebuild + relaunch on file changes, requires `brew install entr`)
 cd Aside && bash watch.sh

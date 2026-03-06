@@ -10,7 +10,7 @@ final class EffectExecutor {
     // Services (injected after init)
     var permissionService: PermissionService?
     var transcriptionService: TranscriptionService?
-    var screenCaptureService: ScreenCaptureService?
+    var screenCaptureService: (any ScreenCaptureServiceProtocol)?
     var contextCaptureService: ContextCaptureService?
     var dispatchService: DispatchService?
     var openCodeService: OpenCodeService?

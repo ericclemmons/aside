@@ -6,7 +6,6 @@ struct WaveformView: View {
     var transcribedText: String
     var isEnhancing: Bool = false
 
-    // Processing bars state
     private let barCount = 10
     @State private var barPhases: [Double] = (0..<10).map { Double($0) * 0.4 }
     @State private var spinAngle: Double = 0
@@ -25,29 +24,36 @@ struct WaveformView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
             } else {
-                // Compact pill with sine wave waveform inside
-                WaveformBanner(audioLevel: audioLevel, liveMode: true)
-                    .frame(height: 28)
-                    .clipped()
+                HStack(spacing: 6) {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.6))
+
+                    WaveformBanner(audioLevel: audioLevel, liveMode: true)
+                        .frame(height: 24)
+                        .clipped()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
 
                 if hasText {
                     transcriptionText
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 14)
                         .padding(.bottom, 8)
-                        .padding(.top, 2)
+                        .padding(.top, 0)
                 }
             }
         }
         .background(
             Capsule()
-                .fill(.black.opacity(0.85))
+                .fill(.black.opacity(0.88))
                 .overlay(
                     Capsule()
-                        .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                        .strokeBorder(.white.opacity(0.1), lineWidth: 1)
                 )
         )
         .clipShape(Capsule())
-        .frame(maxWidth: 220)
+        .frame(maxWidth: hasText ? 200 : 160)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hasText)
         .animation(.easeInOut(duration: 0.25), value: isEnhancing)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

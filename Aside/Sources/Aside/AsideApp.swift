@@ -78,6 +78,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         executor = EffectExecutor(store: store)
         executor.permissionService = permissionService
         executor.transcriptionService = transcriptionService
+        screenCaptureService.overlayWindow = overlayWindow
         executor.screenCaptureService = screenCaptureService
         executor.contextCaptureService = contextCaptureService
         executor.dispatchService = dispatchService
