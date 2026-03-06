@@ -203,9 +203,17 @@ final class EffectExecutor {
         }
 
         // 2. "New Session" entries from unique workspace directories (deduped, ordered by most recent)
+        // Normalize ~ to full path for dedup since API returns both forms
+        let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
         var seenDirs = Set<String>()
         for session in sessions {
-            guard let dir = session.directory, seenDirs.insert(dir).inserted else { continue }
+            guard var dir = session.directory else { continue }
+            if dir.hasPrefix("~/") {
+                dir = home + dir.dropFirst(1)
+            } else if dir == "~" {
+                dir = home
+            }
+            guard seenDirs.insert(dir).inserted else { continue }
             destinations.append(.newOpenCodeWorkspace(
                 displayDirectory: Session.abbreviateHome(in: dir),
                 workingDirectory: dir
