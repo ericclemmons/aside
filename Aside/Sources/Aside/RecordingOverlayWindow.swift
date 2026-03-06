@@ -134,14 +134,22 @@ class RecordingOverlayWindow: NSPanel {
             }
     }
 
-    /// Position for picker: bottom-center, full visible height. Content is bottom-aligned in SwiftUI.
+    /// Position for picker: bottom-center, auto-height from content, capped at visible screen.
     private func positionPickerAtBottom() {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? NSScreen.screens[0]
         let visible = screen.visibleFrame
         let width: CGFloat = 360
+
+        // Set width so hosting view can calculate intrinsic height
+        setFrame(CGRect(x: 0, y: 0, width: width, height: 10000), display: false)
+        hostingView?.layoutSubtreeIfNeeded()
+        let intrinsicHeight = hostingView?.fittingSize.height ?? 400
+        let height = min(intrinsicHeight, visible.height - 30)
+
         let x = visible.midX - width / 2
-        setFrame(CGRect(x: x, y: visible.minY, width: width, height: visible.height), display: false)
+        let y = visible.minY + 30
+        setFrame(CGRect(x: x, y: y, width: width, height: height), display: false)
     }
 
     /// Recalculate position: bottom-center of the screen containing the mouse cursor.
@@ -262,8 +270,6 @@ private struct OverlayContent: View {
             case .picker:
                 DispatchPickerView(state: state)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
-                    .padding(.bottom, 30)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: state.mode)
