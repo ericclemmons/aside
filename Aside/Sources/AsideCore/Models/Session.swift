@@ -13,10 +13,25 @@ public struct Session: Identifiable, Equatable, Sendable {
         self.directory = directory
     }
 
-    /// Formatted time string, e.g. "3:38 PM"
+    /// Relative time string: today="3:38 PM", yesterday="Yesterday", this week="Mon", older="Mar 1"
     public var timeString: String {
+        let cal = Calendar.current
+        if cal.isDateInToday(updatedAt) {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "h:mm a"
+            return formatter.string(from: updatedAt)
+        }
+        if cal.isDateInYesterday(updatedAt) {
+            return "Yesterday"
+        }
+        let daysAgo = cal.dateComponents([.day], from: updatedAt, to: Date()).day ?? 99
+        if daysAgo < 7 {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "EEE"
+            return formatter.string(from: updatedAt)
+        }
         let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
+        formatter.dateFormat = "MMM d"
         return formatter.string(from: updatedAt)
     }
 

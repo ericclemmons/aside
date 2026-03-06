@@ -97,11 +97,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupMenuBar()
 
+        // Preflight: synchronous server discovery so setup window knows connection state
+        if let server = OpenCodeConfig.findServer() {
+            store.send(.serverDiscovered(server))
+        }
+
         // Show setup window — reads store.phase, auto-closes on transition to idle
         storeSetupController = StoreSetupWindowController()
         storeSetupController?.show(store: store, permissionService: permissionService)
 
-        // Start server discovery
+        // Start ongoing server discovery + permission polling
         store.send(.appLaunched)
 
         DispatchQueue.main.async { [weak self] in
@@ -123,9 +128,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if !ctx.destinations.isEmpty {
                     self.overlayState.destinations = ctx.destinations
                     self.overlayState.selectedIndex = ctx.selectedDestinationIndex
-                }
-                if !ctx.currentPrompt.isEmpty && self.overlayState.editablePrompt.isEmpty {
-                    self.overlayState.editablePrompt = ctx.currentPrompt
                 }
             }
             .store(in: &cancellables)

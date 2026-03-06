@@ -140,7 +140,8 @@ final class EffectExecutor {
             let destinations = buildDestinationList()
             store.updateContext { ctx in
                 ctx.destinations = destinations
-                ctx.selectedDestinationIndex = destinations.firstIndex(where: { $0.isSelectable }) ?? 0
+                // Default to "New Session in <projectDir>" — the first newSessionWorkspace entry
+                ctx.selectedDestinationIndex = destinations.firstIndex(where: { $0.kind == .newSessionWorkspace }) ?? 0
             }
 
         case .showOverlay(let overlayEffect):
@@ -196,29 +197,41 @@ final class EffectExecutor {
             ?? ProcessInfo.processInfo.environment["HOME"]
             ?? "/Users/\(NSUserName())"
 
+        // Deduplicate sessions: keep most recent per name+directory
+        var seenKeys = Set<String>()
+        var dedupedSessions: [Session] = []
+        for session in sessions {
+            let key = "\(session.name)|\(session.directory ?? "")"
+            if seenKeys.insert(key).inserted {
+                dedupedSessions.append(session)
+            }
+        }
+
+        // Filter out sessions with "/" as directory
+        dedupedSessions = dedupedSessions.filter { $0.directory != "/" }
+
         var destinations: [DispatchDestination] = []
 
-        // Collect unique directories from recent sessions
-        var seenDirs = Set<String>()
-        var newSessionDirs: [(display: String, full: String)] = []
-        for session in sessions {
-            guard let dir = session.directory, !seenDirs.contains(dir) else { continue }
-            seenDirs.insert(dir)
-            newSessionDirs.append((Session.abbreviateHome(in: dir), dir))
-        }
-        if !seenDirs.contains(projectDir) {
-            newSessionDirs.insert((Session.abbreviateHome(in: projectDir), projectDir), at: 0)
-        }
-
-        destinations.append(.sectionHeader("New Session"))
-        for dir in newSessionDirs {
-            destinations.append(.newOpenCodeWorkspace(displayDirectory: dir.display, workingDirectory: dir.full))
-        }
-
-        let recentSessions = Array(sessions.prefix(5))
-        destinations.append(.sectionHeader("Last \(recentSessions.count) Sessions"))
+        // 1. Previous sessions sorted ascending (oldest first, newest near bottom)
+        let recentSessions = Array(dedupedSessions.prefix(5)).reversed()
         for session in recentSessions {
             destinations.append(.openCodeSession(session))
+        }
+
+        // 2. Default: New Session in current project dir
+        destinations.append(.newOpenCodeWorkspace(
+            displayDirectory: Session.abbreviateHome(in: projectDir),
+            workingDirectory: projectDir
+        ))
+
+        // 3. New sessions in other workdirs from recent sessions
+        var seenDirs = Set<String>([projectDir])
+        for session in dedupedSessions {
+            guard let dir = session.directory, dir != "/", seenDirs.insert(dir).inserted else { continue }
+            destinations.append(.newOpenCodeWorkspace(
+                displayDirectory: Session.abbreviateHome(in: dir),
+                workingDirectory: dir
+            ))
         }
 
         return destinations

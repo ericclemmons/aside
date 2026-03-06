@@ -24,8 +24,6 @@ class OverlayState: ObservableObject {
 
     @Published var destinations: [DispatchDestination] = []
     @Published var selectedIndex: Int = 0
-    /// Editable prompt text shown in the dispatch picker.
-    @Published var editablePrompt: String = ""
     /// Number of screenshots attached so far.
     @Published var screenshotCount: Int = 0
 
@@ -49,7 +47,7 @@ class OverlayState: ObservableObject {
     func confirmSelection() {
         guard destinations.indices.contains(selectedIndex) else { return }
         guard destinations[selectedIndex].isSelectable else { return }
-        onDestinationPicked?(destinations[selectedIndex], editablePrompt)
+        onDestinationPicked?(destinations[selectedIndex], "")
     }
 
     func reset() {
@@ -60,7 +58,6 @@ class OverlayState: ObservableObject {
         isEnhancing = false
         destinations = []
         selectedIndex = 0
-        editablePrompt = ""
         screenshotCount = 0
     }
 }
@@ -73,6 +70,7 @@ class RecordingOverlayWindow: NSPanel {
 
     private var hostingView: NSHostingView<OverlayContent>?
     private var keyMonitor: Any?
+    private var clickMonitor: Any?
     private var modeSink: AnyCancellable?
 
     init() {
@@ -118,30 +116,41 @@ class RecordingOverlayWindow: NSPanel {
 
                 case .waveform:
                     self.removeMonitors()
-                    self.positionAtTop()
+                    self.positionAtBottom()
                     self.ignoresMouseEvents = true
                     self.alphaValue = 1
                     self.orderFront(nil)
 
                 case .picker:
                     guard let state else { return }
-                    self.positionAtTop()
+                    self.positionPickerAtBottom()
                     self.ignoresMouseEvents = false
                     self.alphaValue = 1
                     NSApp.activate(ignoringOtherApps: true)
                     self.makeKeyAndOrderFront(nil)
                     self.installKeyMonitor(state: state)
+                    self.installClickOutsideMonitor(state: state)
                 }
             }
     }
 
-    /// Recalculate position: top-center of the screen containing the mouse cursor.
-    private func positionAtTop() {
+    /// Position for picker: bottom-center, sized for content.
+    private func positionPickerAtBottom() {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? NSScreen.screens[0]
-        let size = CGSize(width: 280, height: 460)
+        let size = CGSize(width: 360, height: 340)
         let x = screen.visibleFrame.midX - size.width / 2
-        let y = screen.visibleFrame.maxY - size.height
+        let y = screen.visibleFrame.minY + 30
+        setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: false)
+    }
+
+    /// Recalculate position: bottom-center of the screen containing the mouse cursor.
+    private func positionAtBottom() {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? NSScreen.screens[0]
+        let size = CGSize(width: 360, height: 120)
+        let x = screen.visibleFrame.midX - size.width / 2
+        let y = screen.visibleFrame.minY + 30
         setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: false)
     }
 
@@ -189,7 +198,34 @@ class RecordingOverlayWindow: NSPanel {
                 return nil
             }
 
-            return event // Pass through to TextEditor
+            return nil // Swallow all other keys (no text editor)
+        }
+    }
+
+    private func installClickOutsideMonitor(state: OverlayState) {
+        if let monitor = clickMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self, weak state] event in
+            guard let self, let state else { return }
+            let clickLocation = event.locationInWindow
+            // Global monitor: locationInWindow is in screen coordinates
+            if !self.frame.contains(clickLocation) {
+                Task { @MainActor in
+                    state.onDestinationPicked?(
+                        DispatchDestination(
+                            id: "cancel",
+                            kind: .sectionHeader,
+                            label: "",
+                            detail: nil,
+                            time: nil,
+                            sessionID: nil,
+                            workingDirectory: nil
+                        ),
+                        ""
+                    )
+                }
+            }
         }
     }
 
@@ -197,6 +233,10 @@ class RecordingOverlayWindow: NSPanel {
         if let monitor = keyMonitor {
             NSEvent.removeMonitor(monitor)
             keyMonitor = nil
+        }
+        if let monitor = clickMonitor {
+            NSEvent.removeMonitor(monitor)
+            clickMonitor = nil
         }
     }
 }
@@ -218,13 +258,14 @@ private struct OverlayContent: View {
                     transcribedText: state.transcribedText,
                     isEnhancing: state.isEnhancing
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             case .picker:
                 DispatchPickerView(state: state)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .padding(.top, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: state.mode)
     }
 }
@@ -234,30 +275,10 @@ private struct OverlayContent: View {
 private struct DispatchPickerView: View {
     @ObservedObject var state: OverlayState
     @State private var appeared = false
+    @State private var hoveredIndex: Int? = nil
 
     var body: some View {
-        VStack(spacing: 8) {
-            // Editable transcription
-            TextEditor(text: $state.editablePrompt)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white)
-                .scrollContentBackground(.hidden)
-                .padding(8)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(.white.opacity(0.08))
-                )
-                .frame(minHeight: 50, maxHeight: 100)
-                .mask(
-                    VStack(spacing: 0) {
-                        Color.black
-                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 16)
-                    }
-                )
-                .padding(.horizontal, 10)
-                .padding(.top, 10)
-
+        VStack(spacing: 6) {
             // Screenshot count badge
             if state.screenshotCount > 0 {
                 HStack(spacing: 4) {
@@ -267,25 +288,45 @@ private struct DispatchPickerView: View {
                         .font(.system(size: 10))
                 }
                 .foregroundStyle(.white.opacity(0.55))
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             // Destination list
-            VStack(spacing: 2) {
-                ForEach(Array(state.destinations.enumerated()), id: \.element.id) { index, dest in
-                    DestinationRow(
-                        destination: dest,
-                        isSelected: dest.isSelectable && index == state.selectedIndex
-                    )
-                    .onTapGesture {
-                        guard dest.isSelectable else { return }
-                        state.selectedIndex = index
-                        state.confirmSelection()
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 2) {
+                        ForEach(Array(state.destinations.enumerated()), id: \.element.id) { index, dest in
+                            DestinationRow(
+                                destination: dest,
+                                isSelected: dest.isSelectable && index == state.selectedIndex,
+                                isHovered: hoveredIndex == index
+                            )
+                            .id(index)
+                            .onHover { hovering in
+                                if hovering && dest.isSelectable {
+                                    hoveredIndex = index
+                                    state.selectedIndex = index
+                                } else if hoveredIndex == index {
+                                    hoveredIndex = nil
+                                }
+                            }
+                            .onTapGesture {
+                                guard dest.isSelectable else { return }
+                                state.selectedIndex = index
+                                state.confirmSelection()
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                }
+                .onChange(of: state.selectedIndex) { newIndex in
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        proxy.scrollTo(newIndex, anchor: .center)
                     }
                 }
             }
-            .padding(.horizontal, 6)
 
             // Hints
             HStack(spacing: 12) {
@@ -304,7 +345,7 @@ private struct DispatchPickerView: View {
                 )
         )
         .frame(maxWidth: 360)
-        .scaleEffect(appeared ? 1.0 : 0.9, anchor: .top)
+        .scaleEffect(appeared ? 1.0 : 0.9, anchor: .bottom)
         .opacity(appeared ? 1.0 : 0.0)
         .onAppear {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
@@ -327,18 +368,9 @@ private struct DispatchPickerView: View {
 private struct DestinationRow: View {
     let destination: DispatchDestination
     let isSelected: Bool
+    let isHovered: Bool
 
     var body: some View {
-        if destination.kind == .sectionHeader {
-            Text(destination.label)
-                .font(.system(size: 10, weight: .semibold))
-                .textCase(.uppercase)
-                .foregroundStyle(.white.opacity(0.4))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10)
-                .padding(.top, 6)
-                .padding(.bottom, 3)
-        } else {
         HStack(spacing: 8) {
             Group {
                 if let url = Bundle.module.url(forResource: "opencode.logo", withExtension: "svg"),
@@ -377,7 +409,7 @@ private struct DestinationRow: View {
                     .font(.system(size: 10))
                     .foregroundStyle(isSelected ? .white.opacity(0.5) : .white.opacity(0.3))
                     .monospacedDigit()
-                    .frame(width: 52, alignment: .trailing)
+                    .frame(width: 62, alignment: .trailing)
             }
 
         }
@@ -385,9 +417,8 @@ private struct DestinationRow: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? .white.opacity(0.12) : .clear)
+                .fill(isSelected ? .white.opacity(0.12) : (isHovered ? .white.opacity(0.06) : .clear))
         )
         .contentShape(Rectangle())
-        }
     }
 }
