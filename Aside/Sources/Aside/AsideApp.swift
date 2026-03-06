@@ -78,7 +78,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         executor = EffectExecutor(store: store)
         executor.permissionService = permissionService
         executor.transcriptionService = transcriptionService
-        screenCaptureService.overlayWindow = overlayWindow
         executor.screenCaptureService = screenCaptureService
         executor.contextCaptureService = contextCaptureService
         executor.dispatchService = dispatchService
@@ -307,7 +306,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func attachToProject(_ sender: NSMenuItem) {
         guard let dir = sender.representedObject as? String else { return }
-        let command = "OPENCODE_SERVER_USERNAME=opencode OPENCODE_SERVER_PASSWORD= opencode attach localhost:\(OpenCodeService.port) --dir \(dir)"
+        guard let server = store.context.server else { return }
+        let command = "OPENCODE_SERVER_USERNAME=\(server.username) OPENCODE_SERVER_PASSWORD=\(server.password) opencode attach \(server.attachTarget) --dir \(dir)"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
         NSApp.hide(nil)

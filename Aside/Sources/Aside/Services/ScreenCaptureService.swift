@@ -1,41 +1,56 @@
 import Foundation
-import AppKit
 import AsideCore
 
-/// Manages window screenshot capture using CGWindowList APIs.
+/// Manages screencapture subprocess for interactive screen/window capture.
+/// Uses `screencapture -io` — interactive crosshair, SPACE toggles to window mode, omits shadow.
 @MainActor
 final class ScreenCaptureService: ScreenCaptureServiceProtocol {
-    private var pickerController: WindowPickerController?
+    private var process: Process?
     private var onCapture: ((String) -> Void)?
-
-    /// Reference to the overlay window so we can promote it above picker panels.
-    var overlayWindow: RecordingOverlayWindow?
 
     func startCapture(onCapture: @escaping (String) -> Void) {
         self.onCapture = onCapture
-
-        let controller = WindowPickerController()
-        controller.onCapture = onCapture
-        pickerController = controller
-
-        // Promote waveform overlay above picker panels
-        overlayWindow?.level = NSWindow.Level(Int(CGWindowLevelForKey(.screenSaverWindow)) + 1)
-
-        controller.show()
+        spawnCapture()
     }
 
     func stopCapture() {
-        pickerController?.dismiss()
-        pickerController = nil
+        process?.terminate()
+        process = nil
         onCapture = nil
-
-        // Restore waveform overlay level
-        overlayWindow?.level = .floating
     }
 
     func deleteFiles(_ paths: [String]) {
         for path in paths {
             try? FileManager.default.removeItem(atPath: path)
+        }
+    }
+
+    private func spawnCapture() {
+        let timestamp = Int(Date().timeIntervalSince1970 * 1000)
+        let tempPath = "/tmp/com.ericclemmons.Aside-\(timestamp).png"
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        proc.arguments = ["-io", tempPath]
+        proc.terminationHandler = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.process = nil
+                if FileManager.default.fileExists(atPath: tempPath) {
+                    self.onCapture?(tempPath)
+                    // Re-spawn for additional captures while still recording
+                    if self.onCapture != nil {
+                        self.spawnCapture()
+                    }
+                }
+            }
+        }
+
+        do {
+            try proc.run()
+            process = proc
+        } catch {
+            NSLog("[ScreenCapture] Failed to spawn: \(error)")
         }
     }
 }

@@ -50,7 +50,7 @@ struct SetupView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(!store.context.permissions.allGranted)
+            .disabled(!store.context.permissions.allGranted || !store.context.openCodeConnected)
             .keyboardShortcut(.defaultAction)
             .padding(.bottom, 24)
         }

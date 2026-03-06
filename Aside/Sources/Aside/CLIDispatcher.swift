@@ -1,7 +1,7 @@
 import Foundation
 import AsideCore
 
-/// Dispatches transcribed prompts to OpenCode CLI via Aside's own server (port 45103).
+/// Dispatches transcribed prompts to OpenCode Desktop's server via `opencode --attach`.
 struct CLIDispatcher {
 
     /// Dispatch a prompt to OpenCode.
@@ -51,11 +51,13 @@ struct CLIDispatcher {
             }
         }
 
-        // Inherit user's shell environment for PATH
+        // Inherit user's shell environment for PATH + server credentials
         var env = ProcessInfo.processInfo.environment
         if let path = env["PATH"] {
             env["PATH"] = "\(home)/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:\(path)"
         }
+        env["OPENCODE_SERVER_USERNAME"] = server.username
+        env["OPENCODE_SERVER_PASSWORD"] = server.password
         process.environment = env
 
         // Capture stderr to log errors
