@@ -1,0 +1,59 @@
+name: Prepare Release
+
+on:
+  push:
+    branches: [main]
+    tags-ignore: ["**"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.TAP_TOKEN }}
+
+      - name: Skip version bump commits
+        id: check
+        run: |
+          MSG=$(git log -1 --pretty=%s)
+          if echo "$MSG" | grep -qE "^bump version to"; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Determine next version
+        if: steps.check.outputs.skip == 'false'
+        id: info
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          VERSION=${LAST_TAG#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          NEXT_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+
+          COMMITS=$(git log "${LAST_TAG}..HEAD" --oneline --no-merges | grep -v "^$" || true)
+
+          if [ -z "$COMMITS" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "version=$NEXT_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Bump version, commit, and tag
+        if: steps.check.outputs.skip == 'false' && steps.info.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.info.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag "v${VERSION}"
+          git push origin main
+          git push origin "v${VERSION}"
