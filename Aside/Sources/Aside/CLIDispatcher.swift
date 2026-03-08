@@ -20,23 +20,24 @@ struct CLIDispatcher {
         let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
         let opencodePath = "\(home)/.opencode/bin/opencode"
 
-        // Build shell command: echo '<prompt>' | opencode [flags] run
-        // `run` MUST be last arg for stdin piping to work.
-        var flags = " --attach \(server.attachTarget)"
+        // Build shell command: echo '<prompt>' | opencode [global-flags] run [run-flags]
+        // --file is a `run` subcommand flag, so it must come after `run`.
+        var globalFlags = " --attach \(server.attachTarget)"
 
         if let sessionID, !sessionID.isEmpty {
-            flags += " --session \(shellQuote(sessionID))"
+            globalFlags += " --session \(shellQuote(sessionID))"
         }
 
         if let workingDirectory, !workingDirectory.isEmpty {
-            flags += " --dir \(shellQuote(workingDirectory))"
+            globalFlags += " --dir \(shellQuote(workingDirectory))"
         }
 
+        var runFlags = ""
         for path in filePaths {
-            flags += " --file=\(shellQuote(path))"
+            runFlags += " --file=\(shellQuote(path))"
         }
 
-        let cmd = "echo \(shellQuote(prompt)) | \(opencodePath)\(flags) run"
+        let cmd = "echo \(shellQuote(prompt)) | \(opencodePath)\(globalFlags) run\(runFlags)"
         NSLog("[Dispatch] %@", String(cmd.prefix(300)))
 
         let process = Process()
