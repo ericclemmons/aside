@@ -21,8 +21,7 @@ struct TryHoldToTypeView: View {
         VStack(spacing: 0) {
             WaveformBanner(audioLevel: currentAudioLevel, liveMode: true)
                 .frame(height: 96)
-
-            Spacer(minLength: 20)
+                .padding(.bottom, 20)
 
             Text("Try Hold-to-Type")
                 .font(.system(size: 20, weight: .semibold))

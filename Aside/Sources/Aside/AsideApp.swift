@@ -406,7 +406,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func makeProjectMenuItem(_ project: ProjectInfo) -> NSMenuItem {
-        let dir = Session.abbreviateHome(in: project.worktree)
+        let dir = project.id == "global" ? "~" : Session.abbreviateHome(in: project.worktree)
         let timeAgo = project.timeAgo
 
         // Use a tab character to right-align the time, like keyboard shortcuts
@@ -430,6 +430,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private struct ProjectInfo {
+        let id: String
         let worktree: String
         let updatedAt: Date
 
@@ -451,9 +452,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let json = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
             var projects = json.compactMap { obj -> ProjectInfo? in
                 guard let worktree = obj["worktree"] as? String else { return nil }
+                let id = obj["id"] as? String ?? ""
                 let time = obj["time"] as? [String: Any]
                 let updatedMs = time?["updated"] as? Double ?? 0
-                return ProjectInfo(worktree: worktree, updatedAt: Date(timeIntervalSince1970: updatedMs / 1000))
+                return ProjectInfo(id: id, worktree: worktree, updatedAt: Date(timeIntervalSince1970: updatedMs / 1000))
             }
             projects.sort { $0.updatedAt > $1.updatedAt }
             return projects

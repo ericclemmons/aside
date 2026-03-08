@@ -9,8 +9,7 @@ struct TryTapToDispatchView: View {
         VStack(spacing: 0) {
             WaveformBanner(audioLevel: store.context.audioLevel, liveMode: true)
                 .frame(height: 96)
-
-            Spacer(minLength: 20)
+                .padding(.bottom, 20)
 
             Text("Try Tap-to-Dispatch")
                 .font(.system(size: 20, weight: .semibold))
