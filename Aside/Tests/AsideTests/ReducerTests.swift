@@ -35,7 +35,7 @@ final class ReducerTests: XCTestCase {
         let (phase, effects) = send(.appLaunched, phase: .idle, context: &ctx)
         XCTAssertEqual(phase, .idle)
         XCTAssertTrue(effects.contains(.checkPermissions))
-        XCTAssertTrue(effects.contains(.startServerDiscovery))
+        XCTAssertTrue(effects.contains(.startAsideServer))
     }
 
     // MARK: - Onboarding: Permissions
@@ -136,26 +136,11 @@ final class ReducerTests: XCTestCase {
 
     // MARK: - Recording → Persistent / Finishing
 
-    func testRecordingKeyUpWithText() {
+    func testRecordingKeyUp() {
         var ctx = makeContext(transcribedText: "hello world")
         let (phase, effects) = send(.keyUp, phase: .recording, context: &ctx)
-        XCTAssertEqual(phase, .finishing(.holdToType))
+        XCTAssertEqual(phase, .transcribing)
         XCTAssertTrue(effects.contains(.stopRecording))
-    }
-
-    func testRecordingKeyUpWithoutText() {
-        var ctx = makeContext(transcribedText: "")
-        let (phase, effects) = send(.keyUp, phase: .recording, context: &ctx)
-        XCTAssertEqual(phase, .persistent)
-        XCTAssertTrue(effects.contains(.startScreenCapture))
-        XCTAssertTrue(effects.contains(.captureContext))
-        XCTAssertTrue(effects.contains(.refreshSessions))
-    }
-
-    func testRecordingKeyUpWhitespaceOnly() {
-        var ctx = makeContext(transcribedText: "   \n  ")
-        let (phase, _) = send(.keyUp, phase: .recording, context: &ctx)
-        XCTAssertEqual(phase, .persistent)
     }
 
     func testRecordingKeyCancel() {
@@ -177,22 +162,12 @@ final class ReducerTests: XCTestCase {
 
     // MARK: - Persistent
 
-    func testPersistentKeyDownWithText() {
+    func testPersistentKeyDown() {
         var ctx = makeContext(transcribedText: "test prompt")
         let (phase, effects) = send(.keyDown, phase: .persistent, context: &ctx)
         XCTAssertEqual(phase, .finishing(.dispatch))
         XCTAssertTrue(effects.contains(.stopRecording))
         XCTAssertTrue(effects.contains(.stopScreenCapture))
-    }
-
-    func testPersistentKeyDownNoText() {
-        var ctx = makeContext(transcribedText: "", screenshotPaths: ["/tmp/shot.png"])
-        let (phase, effects) = send(.keyDown, phase: .persistent, context: &ctx)
-        XCTAssertEqual(phase, .idle)
-        XCTAssertTrue(effects.contains(.cancelRecording))
-        XCTAssertTrue(effects.contains(.stopScreenCapture))
-        XCTAssertTrue(effects.contains(.hideOverlay))
-        XCTAssertTrue(effects.contains(.deleteFiles(["/tmp/shot.png"])))
     }
 
     func testPersistentKeyCancel() {
@@ -238,26 +213,26 @@ final class ReducerTests: XCTestCase {
 
     // MARK: - Finishing (Hold-to-Type)
 
-    func testFinishingHoldToTypeTranscriptionFinished() {
+    // MARK: - Transcribing → Hold-to-Type
+
+    func testTranscribingWithText() {
         var ctx = makeContext()
-        let (phase, effects) = send(.transcriptionFinished(text: "typed text"), phase: .finishing(.holdToType), context: &ctx)
+        let (phase, effects) = send(.transcriptionFinished(text: "typed text"), phase: .transcribing, context: &ctx)
         XCTAssertEqual(phase, .idle)
-        XCTAssertTrue(effects.contains(.typeText("typed text")))
+        XCTAssertTrue(effects.contains(.typeOrDispatch("typed text")))
         XCTAssertTrue(effects.contains(.hideOverlay))
     }
 
-    func testFinishingHoldToTypeEmptyText() {
+    func testTranscribingEmptyTextGoesToPersistent() {
         var ctx = makeContext()
-        let (phase, effects) = send(.transcriptionFinished(text: ""), phase: .finishing(.holdToType), context: &ctx)
-        XCTAssertEqual(phase, .idle)
-        XCTAssertTrue(effects.contains(.hideOverlay))
-        XCTAssertFalse(effects.contains(.typeText("")))
+        let (phase, effects) = send(.transcriptionFinished(text: ""), phase: .transcribing, context: &ctx)
+        XCTAssertEqual(phase, .persistent)
+        XCTAssertTrue(effects.contains(.startRecording(.dictation)))
     }
 
-    func testFinishingHoldToTypeWithEnhancement() {
+    func testTranscribingWithEnhancement() {
         var ctx = makeContext(enhancement: .appleIntelligence)
-        let (phase, effects) = send(.transcriptionFinished(text: "raw text"), phase: .finishing(.holdToType), context: &ctx)
-        // Should stay in finishing and start enhancement
+        let (phase, effects) = send(.transcriptionFinished(text: "raw text"), phase: .transcribing, context: &ctx)
         XCTAssertEqual(phase, .finishing(.holdToType))
         XCTAssertTrue(effects.contains(.enhanceText("raw text")))
         XCTAssertTrue(ctx.isEnhancing)
@@ -268,7 +243,7 @@ final class ReducerTests: XCTestCase {
         ctx.isEnhancing = true
         let (phase, effects) = send(.enhancementFinished(text: "enhanced text"), phase: .finishing(.holdToType), context: &ctx)
         XCTAssertEqual(phase, .idle)
-        XCTAssertTrue(effects.contains(.typeText("enhanced text")))
+        XCTAssertTrue(effects.contains(.typeOrDispatch("enhanced text")))
         XCTAssertTrue(effects.contains(.hideOverlay))
         XCTAssertFalse(ctx.isEnhancing)
     }
@@ -382,14 +357,14 @@ final class ReducerTests: XCTestCase {
         XCTAssertEqual(p2, .recording)
         XCTAssertEqual(ctx.transcribedText, "hello")
 
-        // 3. Key up with text → finishing hold-to-type
+        // 3. Key up → transcribing
         let (p3, _) = send(.keyUp, phase: p2, context: &ctx)
-        XCTAssertEqual(p3, .finishing(.holdToType))
+        XCTAssertEqual(p3, .transcribing)
 
-        // 4. Transcription finished → idle + type
+        // 4. Transcription finished with text → idle + typeOrDispatch
         let (p4, effects) = send(.transcriptionFinished(text: "hello world"), phase: p3, context: &ctx)
         XCTAssertEqual(p4, .idle)
-        XCTAssertTrue(effects.contains(.typeText("hello world")))
+        XCTAssertTrue(effects.contains(.typeOrDispatch("hello world")))
         XCTAssertTrue(effects.contains(.hideOverlay))
     }
 
@@ -402,27 +377,31 @@ final class ReducerTests: XCTestCase {
         let (p1, _) = send(.keyDown, phase: .idle, context: &ctx)
         XCTAssertEqual(p1, .recording)
 
-        // 2. Key up with no text → persistent
+        // 2. Key up → transcribing
         let (p2, _) = send(.keyUp, phase: p1, context: &ctx)
-        XCTAssertEqual(p2, .persistent)
+        XCTAssertEqual(p2, .transcribing)
 
-        // 3. Transcription arrives while persistent
-        let (p3, _) = send(.transcriptionUpdated(text: "fix the bug", audioLevel: 0.3), phase: p2, context: &ctx)
+        // 3. Empty transcription → persistent (tap-to-dispatch mode)
+        let (p3, _) = send(.transcriptionFinished(text: ""), phase: p2, context: &ctx)
         XCTAssertEqual(p3, .persistent)
 
-        // 4. Second key down with text → finishing dispatch
-        let (p4, _) = send(.keyDown, phase: p3, context: &ctx)
-        XCTAssertEqual(p4, .finishing(.dispatch))
+        // 4. Transcription arrives while persistent
+        let (p4, _) = send(.transcriptionUpdated(text: "fix the bug", audioLevel: 0.3), phase: p3, context: &ctx)
+        XCTAssertEqual(p4, .persistent)
 
-        // 5. Transcription finished → dispatching
-        let (p5, effects5) = send(.transcriptionFinished(text: "fix the bug"), phase: p4, context: &ctx)
-        XCTAssertEqual(p5, .dispatching)
-        XCTAssertTrue(effects5.contains(.buildDestinations))
+        // 5. Second key down → finishing dispatch
+        let (p5, _) = send(.keyDown, phase: p4, context: &ctx)
+        XCTAssertEqual(p5, .finishing(.dispatch))
 
-        // 6. Destination picked → idle + dispatch
+        // 6. Transcription finished → dispatching
+        let (p6, effects6) = send(.transcriptionFinished(text: "fix the bug"), phase: p5, context: &ctx)
+        XCTAssertEqual(p6, .dispatching)
+        XCTAssertTrue(effects6.contains(.buildDestinations))
+
+        // 7. Destination picked → idle + dispatch
         let dest = DispatchDestination.newOpenCodeWorkspace(displayDirectory: "~/proj", workingDirectory: "/Users/me/proj")
-        let (p6, effects6) = send(.destinationPicked(dest, editedPrompt: ""), phase: p5, context: &ctx)
-        XCTAssertEqual(p6, .idle)
-        XCTAssertTrue(effects6.contains(where: { if case .dispatch = $0 { return true } else { return false } }))
+        let (p7, effects7) = send(.destinationPicked(dest, editedPrompt: ""), phase: p6, context: &ctx)
+        XCTAssertEqual(p7, .idle)
+        XCTAssertTrue(effects7.contains(where: { if case .dispatch = $0 { return true } else { return false } }))
     }
 }

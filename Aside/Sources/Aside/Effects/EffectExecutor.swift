@@ -50,6 +50,13 @@ final class EffectExecutor {
         case .typeText(let text):
             typeText(text)
 
+        case .typeOrDispatch(let text):
+            if focusedElementIsTextInput() {
+                typeText(text)
+            } else {
+                dispatchToDefaultSession(text: text)
+            }
+
         case .enhanceText(let text):
             Task {
                 guard let enhancer else {
@@ -193,6 +200,67 @@ final class EffectExecutor {
             keyDown?.post(tap: .cgAnnotatedSessionEventTap)
             keyUp?.post(tap: .cgAnnotatedSessionEventTap)
         }
+    }
+
+    // MARK: - Focus detection
+
+    private func focusedElementIsTextInput() -> Bool {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return false }
+        let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+
+        var focusedValue: AnyObject?
+        let focusResult = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedValue)
+        guard focusResult == .success, let focused = focusedValue else { return false }
+
+        let focusedElement = focused as! AXUIElement
+
+        // Check the role of the focused element
+        var roleValue: AnyObject?
+        AXUIElementCopyAttributeValue(focusedElement, kAXRoleAttribute as CFString, &roleValue)
+        let role = roleValue as? String ?? ""
+
+        // Standard text inputs
+        if role == kAXTextFieldRole as String || role == kAXTextAreaRole as String {
+            return true
+        }
+
+        // Terminal emulators, Electron apps (VS Code, etc.) — check if the element accepts text input
+        var settable: DarwinBoolean = false
+        AXUIElementIsAttributeSettable(focusedElement, kAXValueAttribute as CFString, &settable)
+        if settable.boolValue {
+            return true
+        }
+
+        return false
+    }
+
+    // MARK: - Dispatch fallback for hold-to-type without text input
+
+    private func dispatchToDefaultSession(text: String) {
+        guard let server = store.context.server else {
+            NSLog("[EffectExecutor] No server available for fallback dispatch, typing instead")
+            typeText(text)
+            return
+        }
+
+        // Find the most recent session's workspace directory (sessions are sorted by recency)
+        let sessions = store.context.sessions.filter { $0.directory != nil && $0.directory != "/" }
+        let workingDir: String?
+        if let firstSession = sessions.first {
+            let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
+            var dir = firstSession.directory!
+            if dir.hasPrefix("~/") {
+                dir = home + dir.dropFirst(1)
+            } else if dir == "~" {
+                dir = home
+            }
+            workingDir = dir
+        } else {
+            workingDir = store.context.currentProjectDirectory
+        }
+
+        NSLog("[EffectExecutor] No text input focused — dispatching to new session in %@", workingDir ?? "<nil>")
+        dispatchService?.dispatch(prompt: text, server: server, sessionID: nil, filePaths: [], workingDirectory: workingDir)
     }
 
     // MARK: - Build destination list
