@@ -397,7 +397,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !server.username.isEmpty && !server.password.isEmpty {
             command += "OPENCODE_SERVER_USERNAME=\(server.username) OPENCODE_SERVER_PASSWORD=\(server.password) "
         }
-        command += "opencode attach \(server.attachTarget) --dir \(attachDir)"
+        command += "opencode attach \(server.attachTarget) --dir \(attachDir) --continue"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
         NSApp.hide(nil)
