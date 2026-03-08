@@ -392,8 +392,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func attachToProject(_ sender: NSMenuItem) {
         guard let dir = sender.representedObject as? String else { return }
         guard let server = store.context.server else { return }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let attachDir = (dir == "/") ? home : dir
+        let attachDir = (dir == "/") ? "~" : dir
         var command = ""
         if !server.username.isEmpty && !server.password.isEmpty {
             command += "OPENCODE_SERVER_USERNAME=\(server.username) OPENCODE_SERVER_PASSWORD=\(server.password) "
