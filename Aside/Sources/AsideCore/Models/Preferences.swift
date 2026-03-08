@@ -59,12 +59,18 @@ public enum EnhancementMode: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+public enum ServerTarget: String, Equatable, Sendable {
+    case aside
+    case desktop
+}
+
 public enum AppPreferenceKey {
     public static let transcriptionEngine = "transcriptionEngine"
     public static let enhancementMode = "enhancementMode"
     public static let enhancementSystemPrompt = "enhancementSystemPrompt"
     public static let hotkeyMode = "hotkeyMode"
     public static let whisperModelVariant = "whisperModelVariant"
+    public static let selectedServerTarget = "selectedServerTarget"
 
     public static let defaultEnhancementPrompt = """
         You are Aside, a speech-to-text transcription assistant. Your only job is to \

@@ -21,8 +21,8 @@ class SessionManager: ObservableObject {
     }
 
     /// Fetches sessions and current project from the OpenCode server.
-    func refresh() async {
-        guard let server = config.server else {
+    func refresh(server override: DiscoveredServer? = nil) async {
+        guard let server = override ?? config.server else {
             sessions = []
             currentProjectDirectory = nil
             return

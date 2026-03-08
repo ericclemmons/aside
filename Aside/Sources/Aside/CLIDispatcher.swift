@@ -56,8 +56,12 @@ struct CLIDispatcher {
         if let path = env["PATH"] {
             env["PATH"] = "\(home)/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:\(path)"
         }
-        env["OPENCODE_SERVER_USERNAME"] = server.username
-        env["OPENCODE_SERVER_PASSWORD"] = server.password
+        if !server.username.isEmpty {
+            env["OPENCODE_SERVER_USERNAME"] = server.username
+        }
+        if !server.password.isEmpty {
+            env["OPENCODE_SERVER_PASSWORD"] = server.password
+        }
         process.environment = env
 
         // Capture stderr to log errors

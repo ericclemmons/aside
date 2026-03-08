@@ -122,14 +122,20 @@ final class EffectExecutor {
                 callback(.permissionsChecked(status))
             }
 
-        case .startServerDiscovery:
-            openCodeService?.startDiscovery { server in
+        case .startAsideServer:
+            openCodeService?.startAsideServer { server in
                 callback(.serverDiscovered(server))
+            }
+
+        case .startDesktopServerDiscovery:
+            openCodeService?.startDesktopDiscovery { server in
+                callback(.desktopServerDiscovered(server))
             }
 
         case .refreshSessions:
             Task {
-                guard let result = await openCodeService?.refreshSessions() else { return }
+                let activeServer = self.store.context.server
+                guard let result = await openCodeService?.refreshSessions(server: activeServer) else { return }
                 callback(.sessionsRefreshed(sessions: result.sessions, projectDirectory: result.projectDirectory))
             }
 

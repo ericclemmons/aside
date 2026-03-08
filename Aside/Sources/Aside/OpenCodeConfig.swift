@@ -11,11 +11,16 @@ class OpenCodeConfig: ObservableObject {
     /// Scan running processes for `opencode-cli serve` and extract port + credentials.
     func discover() {
         Task.detached(priority: .utility) { [weak self] in
-            let found = Self.findServer()
+            let found = Self.findDesktopServer()
             await MainActor.run { [weak self] in
                 self?.server = found
             }
         }
+    }
+
+    /// Find OpenCode Desktop's bundled CLI serve process.
+    nonisolated static func findDesktopServer() -> DiscoveredServer? {
+        return findServer()
     }
 
     nonisolated static func findServer() -> DiscoveredServer? {

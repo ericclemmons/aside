@@ -23,7 +23,8 @@ public enum Effect: Equatable, Sendable {
 case startPermissionPolling
 
     // Server
-    case startServerDiscovery
+    case startAsideServer
+    case startDesktopServerDiscovery
     case refreshSessions
 
     // Dispatch

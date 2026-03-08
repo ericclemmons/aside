@@ -16,13 +16,15 @@ public struct DiscoveredServer: Equatable, Sendable {
     public var attachTarget: String { "http://\(host):\(port)" }
     public var baseURL: URL { URL(string: "http://\(host):\(port)")! }
 
-    /// Build a URLRequest with Basic auth for the given API path.
+    /// Build a URLRequest with optional Basic auth for the given API path.
     public func authenticatedRequest(path: String) -> URLRequest {
         let url = baseURL.appendingPathComponent(path)
         var request = URLRequest(url: url)
-        let credentials = "\(username):\(password)"
-        let encoded = Data(credentials.utf8).base64EncodedString()
-        request.setValue("Basic \(encoded)", forHTTPHeaderField: "Authorization")
+        if !username.isEmpty && !password.isEmpty {
+            let credentials = "\(username):\(password)"
+            let encoded = Data(credentials.utf8).base64EncodedString()
+            request.setValue("Basic \(encoded)", forHTTPHeaderField: "Authorization")
+        }
         return request
     }
 }

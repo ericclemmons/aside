@@ -29,6 +29,10 @@ struct AsideApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     // Store — starts in onboardingPermissions; setup wizard handles skip-if-granted
     let store = AppStore(phase: .onboardingPermissions, context: AppContext(
+        selectedServerTarget: {
+            let raw = UserDefaults.standard.string(forKey: AppPreferenceKey.selectedServerTarget)
+            return ServerTarget(rawValue: raw ?? "") ?? .aside
+        }(),
         transcriptionEngine: {
             let raw = UserDefaults.standard.string(forKey: AppPreferenceKey.transcriptionEngine)
             return TranscriptionEngine(rawValue: raw ?? "") ?? .dictation
@@ -97,9 +101,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupMenuBar()
 
-        // Preflight: synchronous server discovery so setup window knows connection state
-        if let server = OpenCodeConfig.findServer() {
-            store.send(.serverDiscovered(server))
+        // Preflight: synchronous desktop server discovery so setup window knows connection state
+        if let desktop = OpenCodeConfig.findDesktopServer() {
+            store.send(.desktopServerDiscovered(desktop))
         }
 
         // Show setup window — reads store.phase, auto-closes on transition to idle
@@ -187,16 +191,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     fileprivate func rebuildMenuItems(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        let isConnected = store.context.openCodeConnected
-        let statusColor: NSColor = isConnected ? .systemGreen : .systemRed
-        let statusConfig = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [statusColor]))
-        let headerItem = NSMenuItem(title: "OpenCode Desktop", action: #selector(openOpenCodeDesktop), keyEquivalent: "")
-        headerItem.target = self
-        headerItem.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)?
-            .withSymbolConfiguration(statusConfig)
+        // MARK: Server selector header
+        let headerItem = NSMenuItem(title: "Server", action: nil, keyEquivalent: "")
+        headerItem.isEnabled = false
+        headerItem.attributedTitle = NSAttributedString(
+            string: "Server",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: NSColor.secondaryLabelColor
+            ]
+        )
         menu.addItem(headerItem)
 
+        let selectedTarget = store.context.selectedServerTarget
+
+        // Aside server item
+        let asideItem = makeServerMenuItem(
+            label: "Aside",
+            port: OpenCodeService.asidePort,
+            server: store.context.asideServer,
+            isSelected: selectedTarget == .aside,
+            target: .aside
+        )
+        menu.addItem(asideItem)
+
+        // OpenCode Desktop server item
+        let desktopItem = makeServerMenuItem(
+            label: "OpenCode Desktop",
+            port: store.context.desktopServer?.port,
+            server: store.context.desktopServer,
+            isSelected: selectedTarget == .desktop,
+            target: .desktop
+        )
+        menu.addItem(desktopItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // Attach submenu (only if connected)
+        let isConnected = store.context.openCodeConnected
         if isConnected {
             let attachItem = NSMenuItem()
             attachItem.attributedTitle = NSAttributedString(
@@ -205,7 +237,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             )
             attachItem.image = NSImage(systemSymbolName: "keyboard", accessibilityDescription: nil)
 
-            // Placeholder submenu while loading
             let submenu = NSMenu()
             attachItem.submenu = submenu
             let loadingItem = NSMenuItem(title: "Loading…", action: nil, keyEquivalent: "")
@@ -216,10 +247,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let allProjects = await self.fetchProjects()
                 let oneWeekAgo = Date().addingTimeInterval(-7 * 86400)
                 var projects = allProjects.filter { $0.updatedAt >= oneWeekAgo }
-                if projects.isEmpty, let first = allProjects.first { projects = [first] } // at least 1
+                if projects.isEmpty, let first = allProjects.first { projects = [first] }
 
                 if projects.count == 1 {
-                    // Single project — no flyout, attach directly on click
                     attachItem.submenu = nil
                     attachItem.action = #selector(self.attachToProject(_:))
                     attachItem.target = self
@@ -239,9 +269,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             menu.addItem(attachItem)
+            menu.addItem(NSMenuItem.separator())
         }
-
-        menu.addItem(NSMenuItem.separator())
 
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
@@ -255,6 +284,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         quitItem.target = self
         quitItem.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
         menu.addItem(quitItem)
+    }
+
+    private func makeServerMenuItem(label: String, port: Int?, server: DiscoveredServer?, isSelected: Bool, target: ServerTarget) -> NSMenuItem {
+        let item = NSMenuItem(title: label, action: #selector(selectServer(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = target.rawValue
+
+        // Radio-style checkmark
+        item.state = isSelected ? .on : .off
+
+        // Build attributed title: "Label" left-aligned, port right-aligned (muted), or "Not Started"
+        let attrTitle = NSMutableAttributedString()
+        attrTitle.append(NSAttributedString(string: label, attributes: [
+            .font: NSFont.menuFont(ofSize: 13)
+        ]))
+
+        if server != nil, let port = port {
+            attrTitle.append(NSAttributedString(string: "\t\(port)", attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+                .foregroundColor: NSColor.tertiaryLabelColor
+            ]))
+        } else {
+            attrTitle.append(NSAttributedString(string: "\tNot Started", attributes: [
+                .font: NSFont.menuFont(ofSize: 11),
+                .foregroundColor: NSColor.tertiaryLabelColor
+            ]))
+            // Still allow selection but show it's not running
+        }
+
+        item.attributedTitle = attrTitle
+        return item
+    }
+
+    @objc private func selectServer(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let target = ServerTarget(rawValue: rawValue) else { return }
+        UserDefaults.standard.set(target.rawValue, forKey: AppPreferenceKey.selectedServerTarget)
+        store.send(.serverTargetChanged(target))
     }
 
     // MARK: - Actions
@@ -309,7 +376,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func attachToProject(_ sender: NSMenuItem) {
         guard let dir = sender.representedObject as? String else { return }
         guard let server = store.context.server else { return }
-        let command = "OPENCODE_SERVER_USERNAME=\(server.username) OPENCODE_SERVER_PASSWORD=\(server.password) opencode attach \(server.attachTarget) --dir \(dir)"
+        var command = ""
+        if !server.username.isEmpty && !server.password.isEmpty {
+            command += "OPENCODE_SERVER_USERNAME=\(server.username) OPENCODE_SERVER_PASSWORD=\(server.password) "
+        }
+        command += "opencode attach \(server.attachTarget) --dir \(dir)"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
         NSApp.hide(nil)
@@ -394,7 +465,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quit() {
         hotkeyService.stop()
-        openCodeService.stopDiscovery()  // Also terminates our opencode serve process
+        openCodeService.stopDiscovery()
+        openCodeService.stopServer()
         for token in appObserverTokens {
             NotificationCenter.default.removeObserver(token)
         }
