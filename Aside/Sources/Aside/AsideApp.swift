@@ -78,6 +78,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
 
+        // Sync Settings changes (UserDefaults) → store
+        appObserverTokens.append(
+            UserDefaults.standard.observe(\.transcriptionEngine, options: [.new]) { [weak self] _, change in
+                guard let raw = change.newValue, let engine = TranscriptionEngine(rawValue: raw) else { return }
+                Task { @MainActor [weak self] in
+                    self?.store.updateContext { $0.transcriptionEngine = engine }
+                }
+            }
+        )
+
         // Wire effect executor
         executor = EffectExecutor(store: store)
         executor.permissionService = permissionService
@@ -287,32 +297,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func makeServerMenuItem(label: String, port: Int?, server: DiscoveredServer?, isSelected: Bool, target: ServerTarget) -> NSMenuItem {
-        let item = NSMenuItem(title: label, action: #selector(selectServer(_:)), keyEquivalent: "")
+        let portSuffix = (server != nil && port != nil) ? " (\(port!))" : " (Not Started)"
+        let item = NSMenuItem(title: label + portSuffix, action: #selector(selectServer(_:)), keyEquivalent: "")
         item.target = self
         item.representedObject = target.rawValue
-
-        // Radio-style checkmark
         item.state = isSelected ? .on : .off
 
-        // Build attributed title: "Label" left-aligned, port right-aligned (muted), or "Not Started"
+        // Label normal, port muted
         let attrTitle = NSMutableAttributedString()
         attrTitle.append(NSAttributedString(string: label, attributes: [
             .font: NSFont.menuFont(ofSize: 13)
         ]))
-
-        if server != nil, let port = port {
-            attrTitle.append(NSAttributedString(string: "\t\(port)", attributes: [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
-                .foregroundColor: NSColor.tertiaryLabelColor
-            ]))
-        } else {
-            attrTitle.append(NSAttributedString(string: "\tNot Started", attributes: [
-                .font: NSFont.menuFont(ofSize: 11),
-                .foregroundColor: NSColor.tertiaryLabelColor
-            ]))
-            // Still allow selection but show it's not running
-        }
-
+        attrTitle.append(NSAttributedString(string: portSuffix, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: NSColor.tertiaryLabelColor
+        ]))
         item.attributedTitle = attrTitle
         return item
     }
@@ -480,5 +479,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 extension AppDelegate: NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         rebuildMenuItems(menu)
+    }
+}
+
+// MARK: - KVO for UserDefaults
+
+extension UserDefaults {
+    @objc dynamic var transcriptionEngine: String {
+        string(forKey: AppPreferenceKey.transcriptionEngine) ?? TranscriptionEngine.dictation.rawValue
     }
 }

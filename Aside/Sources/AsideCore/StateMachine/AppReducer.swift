@@ -69,12 +69,9 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
 
     case (.recording, .keyUp):
         let hasText = !context.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if hasText {
+        if hasText || context.onboardingOrigin == .onboardingTryHoldToType {
+            // Has text (streaming engines) or hold-to-type onboarding → stop and wait for transcriptionFinished
             return (.finishing(.holdToType), [.stopRecording])
-        } else if context.onboardingOrigin == .onboardingTryHoldToType {
-            // Hold-to-type onboarding: release without text → go back
-            context.onboardingOrigin = nil
-            return (.onboardingTryHoldToType, [.cancelRecording, .hideOverlay])
         } else {
             return (.persistent, [.startScreenCapture, .captureContext, .refreshSessions])
         }
@@ -96,14 +93,8 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
     // MARK: - Persistent (still recording after key released w/o text)
 
     case (.persistent, .keyDown):
-        let hasText = !context.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if hasText {
-            return (.finishing(.dispatch), [.stopRecording, .stopScreenCapture])
-        } else {
-            context.transcribedText = ""
-            context.audioLevel = 0
-            return (.idle, [.cancelRecording, .stopScreenCapture, .hideOverlay, .deleteFiles(context.screenshotPaths)])
-        }
+        // Stop recording and wait for transcriptionFinished (handles both streaming and batch engines)
+        return (.finishing(.dispatch), [.stopRecording, .stopScreenCapture])
 
     case (.persistent, .keyCancel):
         let paths = context.screenshotPaths
@@ -140,6 +131,7 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
                 context.transcribedText = ""
                 return (origin, [.hideOverlay])
             }
+            context.transcribedText = text
             return (origin, [.typeText(text), .hideOverlay])
         }
         guard !text.isEmpty else {
