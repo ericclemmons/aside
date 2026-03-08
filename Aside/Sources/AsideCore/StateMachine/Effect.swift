@@ -8,7 +8,6 @@ public enum Effect: Equatable, Sendable {
 
     // Text delivery
     case typeText(String)
-    case typeOrDispatch(String)
     case enhanceText(String)
 
     // Screen capture

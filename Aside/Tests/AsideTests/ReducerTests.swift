@@ -219,7 +219,7 @@ final class ReducerTests: XCTestCase {
         var ctx = makeContext()
         let (phase, effects) = send(.transcriptionFinished(text: "typed text"), phase: .transcribing, context: &ctx)
         XCTAssertEqual(phase, .idle)
-        XCTAssertTrue(effects.contains(.typeOrDispatch("typed text")))
+        XCTAssertTrue(effects.contains(.typeText("typed text")))
         XCTAssertTrue(effects.contains(.hideOverlay))
     }
 
@@ -243,7 +243,7 @@ final class ReducerTests: XCTestCase {
         ctx.isEnhancing = true
         let (phase, effects) = send(.enhancementFinished(text: "enhanced text"), phase: .finishing(.holdToType), context: &ctx)
         XCTAssertEqual(phase, .idle)
-        XCTAssertTrue(effects.contains(.typeOrDispatch("enhanced text")))
+        XCTAssertTrue(effects.contains(.typeText("enhanced text")))
         XCTAssertTrue(effects.contains(.hideOverlay))
         XCTAssertFalse(ctx.isEnhancing)
     }
@@ -364,7 +364,7 @@ final class ReducerTests: XCTestCase {
         // 4. Transcription finished with text → idle + typeOrDispatch
         let (p4, effects) = send(.transcriptionFinished(text: "hello world"), phase: p3, context: &ctx)
         XCTAssertEqual(p4, .idle)
-        XCTAssertTrue(effects.contains(.typeOrDispatch("hello world")))
+        XCTAssertTrue(effects.contains(.typeText("hello world")))
         XCTAssertTrue(effects.contains(.hideOverlay))
     }
 

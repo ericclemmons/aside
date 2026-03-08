@@ -111,7 +111,7 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
             return (.finishing(.holdToType), [.enhanceText(text), .addHistory(text: text, engine: context.transcriptionEngine, enhanced: false)])
         }
         context.transcribedText = ""
-        return (.idle, [.typeOrDispatch(text), .hideOverlay, .addHistory(text: text, engine: context.transcriptionEngine, enhanced: false)])
+        return (.idle, [.typeText(text), .hideOverlay, .addHistory(text: text, engine: context.transcriptionEngine, enhanced: false)])
 
     case (.transcribing, .keyCancel):
         context.transcribedText = ""
@@ -159,7 +159,7 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
     case (.finishing(.holdToType), .enhancementFinished(let text)):
         context.isEnhancing = false
         context.transcribedText = ""
-        return (.idle, [.typeOrDispatch(text), .hideOverlay])
+        return (.idle, [.typeText(text), .hideOverlay])
 
     case (.finishing(.dispatch), .transcriptionFinished(let text)):
         guard !text.isEmpty else {
