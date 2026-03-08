@@ -11,11 +11,7 @@ struct AsideApp: App {
 
     var body: some Scene {
         Settings {
-            SettingsView(
-                whisperModelManager: appDelegate.transcriptionService.whisperModelManager,
-                parakeetModelManager: appDelegate.transcriptionService.parakeetModelManager,
-                customWordsManager: appDelegate.customWordsManager
-            )
+            SettingsView(customWordsManager: appDelegate.customWordsManager)
             .frame(minWidth: 480, maxWidth: 520)
             .environment(\.colorScheme, .dark)
             .preferredColorScheme(.dark)
@@ -37,10 +33,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let raw = UserDefaults.standard.string(forKey: AppPreferenceKey.transcriptionEngine)
             return TranscriptionEngine(rawValue: raw ?? "") ?? .dictation
         }(),
-        enhancementMode: {
-            let raw = UserDefaults.standard.string(forKey: AppPreferenceKey.enhancementMode)
-            return EnhancementMode(rawValue: raw ?? "") ?? .off
-        }()
+        enhancementMode: TextEnhancer.isAvailable ? .appleIntelligence : .off
     ))
 
     // Services
@@ -201,6 +194,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     fileprivate func rebuildMenuItems(_ menu: NSMenu) {
         menu.removeAllItems()
 
+        // MARK: Transcription engine selector
+        let transcribeHeader = NSMenuItem(title: "Transcribe with", action: nil, keyEquivalent: "")
+        transcribeHeader.isEnabled = false
+        transcribeHeader.attributedTitle = NSAttributedString(
+            string: "Transcribe with",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: NSColor.secondaryLabelColor
+            ]
+        )
+        menu.addItem(transcribeHeader)
+
+        let currentEngine = store.context.transcriptionEngine
+        for engine in TranscriptionEngine.allCases {
+            let item = NSMenuItem(title: engine.menuTitle, action: #selector(selectEngine(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = engine.rawValue
+            item.state = engine == currentEngine ? .on : .off
+            menu.addItem(item)
+        }
+
+        menu.addItem(NSMenuItem.separator())
+
         // MARK: Server selector header
         let headerItem = NSMenuItem(title: "Server", action: nil, keyEquivalent: "")
         headerItem.isEnabled = false
@@ -215,7 +231,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let selectedTarget = store.context.selectedServerTarget
 
-        // Aside server item
         let asideItem = makeServerMenuItem(
             label: "Aside",
             port: OpenCodeService.asidePort,
@@ -225,7 +240,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         menu.addItem(asideItem)
 
-        // OpenCode Desktop server item
         let desktopItem = makeServerMenuItem(
             label: "OpenCode Desktop",
             port: store.context.desktopServer?.port,
@@ -282,9 +296,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(NSMenuItem.separator())
         }
 
-        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: "Vocabulary...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
-        settingsItem.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
+        settingsItem.image = NSImage(systemSymbolName: "text.book.closed", accessibilityDescription: nil)
         menu.addItem(settingsItem)
 
         menu.addItem(NSMenuItem.separator())
@@ -323,6 +337,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         store.send(.serverTargetChanged(target))
     }
 
+    @objc private func selectEngine(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let engine = TranscriptionEngine(rawValue: rawValue) else { return }
+        UserDefaults.standard.set(engine.rawValue, forKey: AppPreferenceKey.transcriptionEngine)
+        store.updateContext { $0.transcriptionEngine = engine }
+    }
+
     // MARK: - Actions
 
     @objc private func openSettings() {
@@ -332,11 +353,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let contentView = SettingsView(
-            whisperModelManager: transcriptionService.whisperModelManager,
-            parakeetModelManager: transcriptionService.parakeetModelManager,
-            customWordsManager: customWordsManager
-        )
+        let contentView = SettingsView(customWordsManager: customWordsManager)
         .frame(minWidth: 480, maxWidth: 520)
         let hostingController = NSHostingController(rootView: contentView)
 
@@ -427,7 +444,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func fetchProjects() async -> [ProjectInfo] {
         guard let server = store.context.server else { return [] }
-        let request = server.authenticatedRequest(path: "/project")
+        var request = server.authenticatedRequest(path: "/project")
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         do {
             let (data, _) = try await URLSession.shared.data(for: request)
             guard let json = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }

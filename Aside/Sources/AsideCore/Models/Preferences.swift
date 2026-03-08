@@ -15,6 +15,14 @@ public enum TranscriptionEngine: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    public var menuTitle: String {
+        switch self {
+        case .dictation: return "Apple Dictation"
+        case .whisper: return "OpenAI Whisper"
+        case .parakeet: return "NVIDIA Parakeet"
+        }
+    }
+
     public var description: String {
         switch self {
         case .dictation: return "Uses Apple's built-in speech recognition. Works immediately with no setup."
