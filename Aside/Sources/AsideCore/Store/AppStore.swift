@@ -14,7 +14,11 @@ public final class AppStore: ObservableObject {
     }
 
     public func send(_ event: AppEvent) {
+        let oldPhase = phase
         let (newPhase, effects) = reduce(phase: phase, context: &context, event: event)
+        if newPhase != oldPhase {
+            NSLog("[Store] %@ + %@ → %@ effects=%@", "\(oldPhase)", "\(event)", "\(newPhase)", "\(effects.map { "\($0)" })")
+        }
         phase = newPhase
 
         for effect in effects {

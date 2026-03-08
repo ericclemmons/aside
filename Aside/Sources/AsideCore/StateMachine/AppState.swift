@@ -11,7 +11,8 @@ public enum AppPhase: Equatable, Sendable {
     // Core app states
     case idle
     case recording           // key held, mic active
-    case persistent          // key released w/o text, still recording
+    case transcribing        // key released, waiting for transcription result to decide next step
+    case persistent          // tap-to-dispatch: key released w/o text, still recording
     case finishing(FinishMode) // transcriber stopping
     case dispatching         // picker visible
 
@@ -83,6 +84,7 @@ public struct AppContext: Equatable, Sendable {
     public var transcribedText: String
     public var audioLevel: Float
     public var isEnhancing: Bool
+
 
     // Capture
     public var capturedContext: ActiveContext?

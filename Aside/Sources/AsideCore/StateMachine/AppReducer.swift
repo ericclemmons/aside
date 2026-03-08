@@ -38,12 +38,14 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
     case (.onboardingTryHoldToType, .keyDown):
         context.transcribedText = ""
         context.audioLevel = 0
+
         context.onboardingOrigin = .onboardingTryHoldToType
         return (.recording, [.startRecording(context.transcriptionEngine), .showOverlay(.waveform)])
 
     case (.onboardingTryTapToDispatch, .keyDown):
         context.transcribedText = ""
         context.audioLevel = 0
+
         context.onboardingOrigin = .onboardingTryTapToDispatch
         return (.recording, [.startRecording(context.transcriptionEngine), .showOverlay(.waveform)])
 
@@ -63,13 +65,14 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
         context.isEnhancing = false
         context.capturedContext = nil
         context.screenshotPaths = []
+
         return (.recording, [.startRecording(context.transcriptionEngine), .showOverlay(.waveform)])
 
     // MARK: - Recording
 
     case (.recording, .keyUp):
-        // Always stop recording and wait for transcriptionFinished to decide next step
-        return (.finishing(.holdToType), [.stopRecording, .hideOverlay])
+        // Stop recording → transcribing; transcriptionFinished decides hold-to-type vs persistent
+        return (.transcribing, [.stopRecording])
 
     case (.recording, .keyCancel):
         context.transcribedText = ""
@@ -84,6 +87,40 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
         context.transcribedText = text
         context.audioLevel = level
         return (.recording, [])
+
+    // MARK: - Transcribing (key released, waiting for transcription result)
+
+    case (.transcribing, .transcriptionFinished(let text)):
+        // Onboarding: type the text, return to onboarding phase
+        if let origin = context.onboardingOrigin {
+            context.onboardingOrigin = nil
+            if text.isEmpty {
+                context.transcribedText = ""
+                return (origin, [.hideOverlay])
+            }
+            context.transcribedText = text
+            return (origin, [.typeText(text), .hideOverlay])
+        }
+        guard !text.isEmpty else {
+            // No text → tap-to-dispatch: restart recording, keep overlay, capture context
+            return (.persistent, [.startRecording(context.transcriptionEngine), .startScreenCapture, .captureContext, .refreshSessions])
+        }
+        // Has text → hold-to-type
+        if context.enhancementMode == .appleIntelligence {
+            context.isEnhancing = true
+            return (.finishing(.holdToType), [.enhanceText(text), .addHistory(text: text, engine: context.transcriptionEngine, enhanced: false)])
+        }
+        context.transcribedText = ""
+        return (.idle, [.typeText(text), .hideOverlay, .addHistory(text: text, engine: context.transcriptionEngine, enhanced: false)])
+
+    case (.transcribing, .keyCancel):
+        context.transcribedText = ""
+        context.audioLevel = 0
+        if let origin = context.onboardingOrigin {
+            context.onboardingOrigin = nil
+            return (origin, [.cancelRecording, .hideOverlay])
+        }
+        return (.idle, [.cancelRecording, .hideOverlay])
 
     // MARK: - Persistent (still recording after key released w/o text)
 
@@ -118,28 +155,7 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
 
     // MARK: - Finishing
 
-    case (.finishing(.holdToType), .transcriptionFinished(let text)):
-        // Onboarding: type the text (real experience), return to onboarding phase
-        if let origin = context.onboardingOrigin {
-            context.onboardingOrigin = nil
-            if text.isEmpty {
-                context.transcribedText = ""
-                return (origin, [.hideOverlay])
-            }
-            context.transcribedText = text
-            return (origin, [.typeText(text), .hideOverlay])
-        }
-        guard !text.isEmpty else {
-            // No text after recording → switch to tap-to-dispatch mode
-            return (.persistent, [.startRecording(context.transcriptionEngine), .startScreenCapture, .captureContext, .refreshSessions])
-        }
-        if context.enhancementMode == .appleIntelligence {
-            context.isEnhancing = true
-            return (.finishing(.holdToType), [.enhanceText(text), .addHistory(text: text, engine: context.transcriptionEngine, enhanced: false)])
-        }
-        context.transcribedText = ""
-        return (.idle, [.typeText(text), .hideOverlay, .addHistory(text: text, engine: context.transcriptionEngine, enhanced: false)])
-
+    // finishing(.holdToType) is only reached from transcribing when enhancement is active
     case (.finishing(.holdToType), .enhancementFinished(let text)):
         context.isEnhancing = false
         context.transcribedText = ""

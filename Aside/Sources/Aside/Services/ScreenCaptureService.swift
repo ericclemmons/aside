@@ -2,7 +2,7 @@ import Foundation
 import AsideCore
 
 /// Manages screencapture subprocess for interactive screen/window capture.
-/// Uses `screencapture -io` — interactive crosshair, SPACE toggles to window mode, omits shadow.
+/// Uses `screencapture -iow` — interactive mode defaulting to window capture, omits shadow.
 @MainActor
 final class ScreenCaptureService: ScreenCaptureServiceProtocol {
     private var process: Process?
@@ -31,7 +31,7 @@ final class ScreenCaptureService: ScreenCaptureServiceProtocol {
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        proc.arguments = ["-io", tempPath]
+        proc.arguments = ["-iow", tempPath]
         proc.terminationHandler = { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }

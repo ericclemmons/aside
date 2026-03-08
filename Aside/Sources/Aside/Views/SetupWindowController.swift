@@ -56,7 +56,7 @@ class StoreSetupWindowController {
                 switch phase {
                 case .onboardingPermissions, .onboardingTryHoldToType, .onboardingTryTapToDispatch:
                     break // keep open
-                case .recording, .persistent, .finishing, .dispatching:
+                case .recording, .transcribing, .persistent, .finishing, .dispatching:
                     // Keep open if recording originated from onboarding
                     if store.context.onboardingOrigin != nil { break }
                     self?.close()
@@ -90,7 +90,7 @@ private struct StoreSetupRootView: View {
                 TryHoldToTypeView(store: store)
             case .onboardingTryTapToDispatch:
                 TryTapToDispatchView(store: store)
-            case .recording, .persistent, .finishing, .dispatching:
+            case .recording, .transcribing, .persistent, .finishing, .dispatching:
                 // During onboarding recording, keep showing the right view
                 if store.context.onboardingOrigin == .onboardingTryHoldToType {
                     TryHoldToTypeView(store: store)
