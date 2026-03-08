@@ -190,7 +190,10 @@ class ParakeetTranscriber: ObservableObject, TranscriberProtocol {
     }
 
     func startRecording() {
-        guard !isRecording else { return }
+        guard !isRecording else {
+            NSLog("[Parakeet] startRecording called but already recording")
+            return
+        }
         transcriptionTask?.cancel()
         transcriptionTask = nil
 
@@ -199,6 +202,7 @@ class ParakeetTranscriber: ObservableObject, TranscriberProtocol {
         transcribedText = ""
         audioLevel = 0
 
+        NSLog("[Parakeet] Starting recording")
         do {
             let inputNode = audioEngine.inputNode
             let recordingFormat = inputNode.outputFormat(forBus: 0)
@@ -234,7 +238,10 @@ class ParakeetTranscriber: ObservableObject, TranscriberProtocol {
     }
 
     func stopRecording() {
-        guard isRecording else { return }
+        guard isRecording else {
+            NSLog("[Parakeet] stopRecording called but not recording")
+            return
+        }
 
         if audioEngine.isRunning { audioEngine.stop() }
         audioEngine.inputNode.removeTap(onBus: 0)
@@ -244,7 +251,11 @@ class ParakeetTranscriber: ObservableObject, TranscriberProtocol {
         let sampleRate = inputSampleRate
         audioBuffer = []
 
+        NSLog("[Parakeet] Stopped recording, captured %d samples at %.0f Hz (%.1f sec)",
+              capturedAudio.count, sampleRate, Double(capturedAudio.count) / sampleRate)
+
         guard !capturedAudio.isEmpty else {
+            NSLog("[Parakeet] No audio captured, finishing with empty text")
             onTranscriptionFinished?("")
             return
         }
@@ -255,22 +266,38 @@ class ParakeetTranscriber: ObservableObject, TranscriberProtocol {
     }
 
     private func transcribeAudio(_ samples: [Float], sampleRate: Double) async {
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else {
+            NSLog("[Parakeet] transcribeAudio: task cancelled before start")
+            return
+        }
         do {
+            NSLog("[Parakeet] Loading model...")
             _ = try await modelManager.loadModel()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                NSLog("[Parakeet] transcribeAudio: task cancelled after model load")
+                return
+            }
 
+            NSLog("[Parakeet] Writing WAV file...")
             let tempURL = try writeWAVFile(samples: samples, sampleRate: sampleRate)
             defer { try? FileManager.default.removeItem(at: tempURL) }
 
+            NSLog("[Parakeet] Transcribing audio...")
             let text = try await modelManager.transcribe(audioURL: tempURL)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                NSLog("[Parakeet] transcribeAudio: task cancelled after transcription")
+                return
+            }
 
+            NSLog("[Parakeet] Transcription result: '%@' (%d chars)", text, text.count)
             transcribedText = text
             onTranscriptionFinished?(text)
         } catch {
-            guard !Task.isCancelled else { return }
-            NSLog("ParakeetTranscriber: Transcription failed: \(error)")
+            guard !Task.isCancelled else {
+                NSLog("[Parakeet] transcribeAudio: task cancelled during error handling")
+                return
+            }
+            NSLog("[Parakeet] Transcription failed: %@", error.localizedDescription)
             onTranscriptionFinished?("")
         }
     }

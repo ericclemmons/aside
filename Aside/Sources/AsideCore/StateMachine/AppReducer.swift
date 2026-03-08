@@ -68,13 +68,8 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
     // MARK: - Recording
 
     case (.recording, .keyUp):
-        let hasText = !context.transcribedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if hasText || context.onboardingOrigin == .onboardingTryHoldToType {
-            // Has text (streaming engines) or hold-to-type onboarding → stop and wait for transcriptionFinished
-            return (.finishing(.holdToType), [.stopRecording])
-        } else {
-            return (.persistent, [.startScreenCapture, .captureContext, .refreshSessions])
-        }
+        // Always stop recording and wait for transcriptionFinished to decide next step
+        return (.finishing(.holdToType), [.stopRecording, .hideOverlay])
 
     case (.recording, .keyCancel):
         context.transcribedText = ""
@@ -135,8 +130,8 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
             return (origin, [.typeText(text), .hideOverlay])
         }
         guard !text.isEmpty else {
-            context.transcribedText = ""
-            return (.idle, [.hideOverlay])
+            // No text after recording → switch to tap-to-dispatch mode
+            return (.persistent, [.startRecording(context.transcriptionEngine), .startScreenCapture, .captureContext, .refreshSessions])
         }
         if context.enhancementMode == .appleIntelligence {
             context.isEnhancing = true

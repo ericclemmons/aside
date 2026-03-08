@@ -46,6 +46,8 @@ final class TranscriptionService {
 
     func startRecording(engine: TranscriptionEngine, customWords: [String]) {
         activeEngine = engine
+        NSLog("[TranscriptionService] startRecording engine=%@ parakeetReady=%d whisperReady=%d",
+              engine.rawValue, isParakeetReady ? 1 : 0, isWhisperReady ? 1 : 0)
 
         switch engine {
         case .whisper where isWhisperReady:
