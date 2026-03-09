@@ -15,18 +15,23 @@ brew install ericclemmons/tap/aside
 
 ## Commands
 
-### `aside run` — Dispatch a prompt
+### `aside prompt` — Dispatch a prompt
+
+Auto-connects to the running server and defaults to the most recent session's workspace directory.
 
 ```bash
-aside run "your prompt here"
-aside run -s ses_abc123 "prompt for specific session"
-aside run -d /path/to/project "prompt in project dir"
-aside run -f /path/to/file "prompt with file attachment"
+aside prompt "your prompt here"
+aside --session ses_abc123 prompt "continue this session"
+aside prompt -d /path/to/project "prompt in specific dir"
+aside prompt -f /path/to/file "prompt with file attachment"
+echo "piped prompt" | aside prompt
 ```
 
-Flags:
-- `-s <id>` — target a specific session
-- `-d <dir>` — set the working directory
+Global flags (before subcommand):
+- `--session <id>` / `-s <id>` — target a specific session
+
+Subcommand flags:
+- `-d <dir>` — override working directory (defaults to most recent session's dir)
 - `-f <file>` — attach a file to the prompt
 
 ### `aside sessions` — List sessions
@@ -53,7 +58,7 @@ Example output:
 
 ### `aside attach` — Open OpenCode TUI
 
-Opens the OpenCode terminal UI attached to the active server.
+Opens the OpenCode terminal UI, continuing the most recent session.
 
 ```bash
 aside attach
@@ -63,10 +68,11 @@ aside attach
 
 1. Check the server: `aside server`
 2. List sessions: `aside sessions`
-3. Dispatch a prompt: `aside run -s <session-id> "do the thing"`
+3. New prompt: `aside prompt "do the thing"`
+4. Continue a session: `aside --session <id> prompt "follow up"`
 
 ## Notes
 
-- Aside runs its own `opencode serve` on port 4096 by default
-- The CLI connects to whatever server the Aside menu bar app is targeting
+- The CLI auto-discovers the active server (Aside on port 4096 or OpenCode Desktop)
+- Without `-d`, defaults to the most recent session's workspace directory
 - Use `jq` for parsing JSON output (e.g., `aside sessions | jq '.[] | select(.title | test("bug"))'`)

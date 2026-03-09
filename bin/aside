@@ -92,24 +92,34 @@ json_error() {
   jq -n --arg error "$1" '{error: $error}' >&2
 }
 
+# Get the most recent session's directory from the server
+recent_dir() {
+  local curl_args=(-sf "${SERVER_URL}/session")
+  if [[ -n "$SERVER_AUTH" ]]; then
+    curl_args+=(-u "$SERVER_AUTH")
+  fi
+
+  curl "${curl_args[@]}" 2>/dev/null \
+    | jq -r '[.[] | select(.directory != "/" and .directory != "" and .directory != "~") | {dir: .directory, updated: .time.updated}] | sort_by(.updated) | reverse | .[0].dir // empty' 2>/dev/null
+}
+
 cmd_help() {
-  echo "usage: aside <command> [options]"
+  echo "usage: aside [--session id] <command> [options]"
   echo ""
   echo "commands:"
-  echo "  run [-s id] [-d dir] [-f file] \"prompt\"   dispatch prompt"
-  echo "  sessions                                   list sessions (JSON)"
-  echo "  server                                     show active server"
-  echo "  attach                                     open opencode TUI"
+  echo "  prompt [-d dir] [-f file] \"text\"   dispatch prompt (new or to --session)"
+  echo "  sessions                            list sessions (JSON)"
+  echo "  server                              show active server"
+  echo "  attach                              open opencode TUI"
 }
 
 # --- Commands ---
 
-cmd_run() {
-  local session="" dir="" prompt="" files=()
+cmd_prompt() {
+  local dir="" prompt="" files=()
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      -s|--session) session="$2"; shift 2 ;;
       -d|--dir)     dir="$2"; shift 2 ;;
       -f|--file)    files+=("$2"); shift 2 ;;
       -*)           json_error "unknown flag: $1"; exit 1 ;;
@@ -123,7 +133,7 @@ cmd_run() {
   fi
 
   if [[ -z "$prompt" ]]; then
-    json_error "no prompt provided. usage: aside run [-s session] [-d dir] [-f file ...] \"prompt\""
+    json_error "no prompt provided. usage: aside [--session id] prompt [-d dir] [-f file ...] \"text\""
     exit 1
   fi
 
@@ -132,10 +142,14 @@ cmd_run() {
   # Build opencode command
   local global_flags=("--attach" "$SERVER_URL")
 
-  if [[ -n "$session" ]]; then
-    global_flags+=("--session" "$session")
+  if [[ -n "$SESSION" ]]; then
+    global_flags+=("--session" "$SESSION")
   fi
 
+  # Default to most recent session's workspace dir
+  if [[ -z "$dir" ]]; then
+    dir=$(recent_dir)
+  fi
   if [[ -n "$dir" ]]; then
     global_flags+=("--dir" "$dir")
   fi
@@ -182,7 +196,12 @@ cmd_attach() {
 
   export PATH="${HOME}/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
 
-  local args=("$SERVER_URL")
+  local args=("$SERVER_URL" "--continue")
+  local dir
+  dir=$(recent_dir)
+  if [[ -n "$dir" ]]; then
+    args+=("--dir" "$dir")
+  fi
   if [[ -n "${1:-}" ]]; then
     args+=("$@")
   fi
@@ -192,14 +211,32 @@ cmd_attach() {
 
 # --- Main ---
 
+# Parse global flags before subcommand
+SESSION=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -s|--session)  SESSION="$2"; shift 2 ;;
+    --session=*)   SESSION="${1#--session=}"; shift ;;
+    -*)
+      # Check if it's help before treating as unknown
+      if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cmd_help; exit 0
+      fi
+      json_error "unknown flag: $1"
+      cmd_help >&2
+      exit 1
+      ;;
+    *)  break ;;
+  esac
+done
+
 case "${1:-}" in
-  run)      shift; cmd_run "$@" ;;
+  prompt)   shift; cmd_prompt "$@" ;;
+  run)      shift; cmd_prompt "$@" ;;  # back-compat alias
   sessions) cmd_sessions ;;
   server)   cmd_server ;;
   attach)   shift; cmd_attach "$@" ;;
-  -h|--help)
-    cmd_help
-    ;;
   "")
     cmd_help
     exit 1
