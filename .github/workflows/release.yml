@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release (for backfills)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -13,6 +19,24 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+
+      - name: Resolve release tag
+        id: release_tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+
+          if [ -z "$TAG" ]; then
+            echo "::error::Missing release tag"
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Import signing certificate
         env:
@@ -71,15 +95,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" Aside/Aside.zip \
-            --title "${{ github.ref_name }}" \
-            --notes "SHA256: \`${{ steps.sha.outputs.sha256 }}\`"
+          TAG="${{ steps.release_tag.outputs.tag }}"
+          NOTES="SHA256: \`${{ steps.sha.outputs.sha256 }}\`"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" Aside/Aside.zip --clobber
+            gh release edit "$TAG" --title "$TAG" --notes "$NOTES"
+          else
+            gh release create "$TAG" Aside/Aside.zip \
+              --title "$TAG" \
+              --notes "$NOTES"
+          fi
 
       - name: Update Homebrew tap
         env:
           TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
         run: |
-          VERSION="${{ github.ref_name }}"
+          VERSION="${{ steps.release_tag.outputs.tag }}"
           VERSION="${VERSION#v}"
           SHA256="${{ steps.sha.outputs.sha256 }}"
 
