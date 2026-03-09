@@ -25,6 +25,16 @@ Two modes:
 brew install ericclemmons/tap/aside
 ```
 
+## AI Agent Skill
+
+Give your AI coding agent the ability to dispatch prompts via the Aside CLI:
+
+```bash
+npx skills add ericclemmons/aside
+```
+
+This installs the `aside` skill into Claude Code, Cursor, Codex, OpenCode, and other supported agents. Use `-g` for global install.
+
 ## Development
 
 Requires **macOS 14+** (Sonoma), **Xcode / Swift toolchain**, and [OpenCode CLI](https://opencode.ai/).
