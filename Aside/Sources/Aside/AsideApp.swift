@@ -33,7 +33,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let raw = UserDefaults.standard.string(forKey: AppPreferenceKey.transcriptionEngine)
             return TranscriptionEngine(rawValue: raw ?? "") ?? .dictation
         }(),
-        enhancementMode: TextEnhancer.isAvailable ? .appleIntelligence : .off
+        enhancementMode: {
+            #if canImport(FoundationModels)
+            if #available(macOS 26.0, *) {
+                return TextEnhancer.isAvailable ? .appleIntelligence : .off
+            }
+            #endif
+            return .off
+        }()
     ))
 
     // Services
@@ -94,9 +101,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         executor.overlayWindow = overlayWindow
         executor.overlayState = overlayState
         executor.customWordsManager = customWordsManager
-        if TextEnhancer.isAvailable {
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *), TextEnhancer.isAvailable {
             executor.enhancer = TextEnhancer()
         }
+        #endif
 
         // Wire overlay to show store state
         overlayWindow.observe(state: overlayState)
