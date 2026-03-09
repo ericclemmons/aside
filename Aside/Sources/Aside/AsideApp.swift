@@ -392,7 +392,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func attachToProject(_ sender: NSMenuItem) {
         guard let dir = sender.representedObject as? String else { return }
         guard let server = store.context.server else { return }
-        let attachDir = (dir == "/") ? "~" : dir
+        let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
+        let attachDir = (dir == home) ? "~" : dir
         var command = ""
         if !server.username.isEmpty && !server.password.isEmpty {
             command += "OPENCODE_SERVER_USERNAME=\(server.username) OPENCODE_SERVER_PASSWORD=\(server.password) "
@@ -407,14 +408,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func makeProjectMenuItem(_ project: ProjectInfo) -> NSMenuItem {
-        let dir = project.id == "global" ? "~" : Session.abbreviateHome(in: project.worktree)
+        let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
+        let isGlobal = project.id == "global"
+        let dir = isGlobal ? "~" : Session.abbreviateHome(in: project.worktree)
         let timeAgo = project.timeAgo
 
         // Use a tab character to right-align the time, like keyboard shortcuts
         let title = "\(dir)\t\(timeAgo)"
         let item = NSMenuItem(title: title, action: #selector(attachToProject(_:)), keyEquivalent: "")
         item.target = self
-        item.representedObject = project.worktree
+        item.representedObject = isGlobal ? home : project.worktree
 
         // Styled: dir normal, time muted
         let attrTitle = NSMutableAttributedString()
