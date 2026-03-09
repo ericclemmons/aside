@@ -4,7 +4,7 @@ ASIDE_DIR := Aside
 ASIDE_APP := $(ASIDE_DIR)/Aside.app
 ASIDE_BUNDLE_BIN := $(ASIDE_APP)/Contents/MacOS/Aside
 
-.PHONY: build build-release release install run dev watch test test-one clean
+.PHONY: build build-release release install install-cli run dev watch test test-one clean
 
 build:
 	cd "$(ASIDE_DIR)" && swift build
@@ -28,11 +28,16 @@ release: build-release
 	fi
 	@echo "Built $(ASIDE_APP) (release)"
 
-install:
+install: install-cli
 	@BIN_PATH=$$(cd "$(ASIDE_DIR)" && swift build --show-bin-path)/Aside; \
 	cp "$$BIN_PATH" "$(ASIDE_BUNDLE_BIN)"; \
 	codesign --force --deep --sign "Developer ID Application: Eric Clemmons (D3TJHQZD9N)" --identifier com.ericclemmons.aside.app "$(ASIDE_APP)"; \
 	/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f "$(ASIDE_APP)"
+
+install-cli:
+	@mkdir -p /usr/local/bin
+	@ln -sf "$(CURDIR)/bin/aside" /usr/local/bin/aside
+	@echo "Installed aside CLI → /usr/local/bin/aside"
 
 run:
 	pkill -x Aside 2>/dev/null || true

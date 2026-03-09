@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+OPENCODE_BIN="${HOME}/.opencode/bin/opencode"
+ASIDE_PORT=4096
+BUNDLE_ID="com.ericclemmons.aside.app"
+
+# --- Server Discovery ---
+
+discover_server() {
+  local target
+  target=$(defaults read "$BUNDLE_ID" selectedServerTarget 2>/dev/null || echo "aside")
+
+  case "$target" in
+    desktop)
+      discover_desktop
+      ;;
+    *)
+      # Default to aside server
+      SERVER_HOST="127.0.0.1"
+      SERVER_PORT="$ASIDE_PORT"
+      SERVER_URL="http://127.0.0.1:${ASIDE_PORT}"
+      SERVER_AUTH=""
+      SERVER_TARGET="aside"
+
+      # Verify aside server is running
+      if ! curl -sf "${SERVER_URL}/session" >/dev/null 2>&1; then
+        echo "error: Aside server not running on port ${ASIDE_PORT}" >&2
+        echo "Start Aside.app or switch to desktop: defaults write ${BUNDLE_ID} selectedServerTarget desktop" >&2
+        exit 1
+      fi
+      ;;
+  esac
+}
+
+discover_desktop() {
+  local ps_output line port host username password
+  ps_output=$(ps ewwA -o pid,command 2>/dev/null) || {
+    echo "error: failed to list processes" >&2
+    exit 1
+  }
+
+  while IFS= read -r line; do
+    # Match OpenCode Desktop's bundled CLI serve process
+    [[ "$line" == *"OpenCode.app"* && "$line" == *"opencode-cli"* && "$line" == *"serve"* ]] || continue
+    [[ "$line" == *"grep"* ]] && continue
+
+    # Extract --port
+    if [[ "$line" =~ --port[=\ ]([0-9]+) ]]; then
+      port="${BASH_REMATCH[1]}"
+    else
+      continue
+    fi
+
+    # Extract --hostname (default 127.0.0.1)
+    if [[ "$line" =~ --hostname[=\ ]([^\ ]+) ]]; then
+      host="${BASH_REMATCH[1]}"
+    else
+      host="127.0.0.1"
+    fi
+
+    # Extract credentials from env vars in ps output
+    if [[ "$line" =~ OPENCODE_SERVER_USERNAME=([^\ ]+) ]]; then
+      username="${BASH_REMATCH[1]}"
+    else
+      username="opencode"
+    fi
+
+    if [[ "$line" =~ OPENCODE_SERVER_PASSWORD=([^\ ]+) ]]; then
+      password="${BASH_REMATCH[1]}"
+    else
+      continue  # password required
+    fi
+
+    SERVER_HOST="$host"
+    SERVER_PORT="$port"
+    SERVER_URL="http://${host}:${port}"
+    SERVER_AUTH="${username}:${password}"
+    SERVER_TARGET="desktop"
+
+    export OPENCODE_SERVER_USERNAME="$username"
+    export OPENCODE_SERVER_PASSWORD="$password"
+    return 0
+  done <<< "$ps_output"
+
+  echo "error: OpenCode Desktop server not found" >&2
+  echo "Start OpenCode Desktop or switch to aside: defaults write ${BUNDLE_ID} selectedServerTarget aside" >&2
+  exit 1
+}
+
+# --- Commands ---
+
+cmd_run() {
+  local session="" dir="" prompt="" files=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -s|--session) session="$2"; shift 2 ;;
+      -d|--dir)     dir="$2"; shift 2 ;;
+      -f|--file)    files+=("$2"); shift 2 ;;
+      -*)           echo "error: unknown flag: $1" >&2; exit 1 ;;
+      *)            prompt="$1"; shift ;;
+    esac
+  done
+
+  # Read prompt from stdin if not provided as argument
+  if [[ -z "$prompt" ]] && ! [ -t 0 ]; then
+    prompt=$(cat)
+  fi
+
+  if [[ -z "$prompt" ]]; then
+    echo "usage: aside run [-s session] [-d dir] [-f file ...] \"prompt\"" >&2
+    echo "       echo \"prompt\" | aside run" >&2
+    exit 1
+  fi
+
+  discover_server
+
+  # Build opencode command
+  local global_flags=("--attach" "$SERVER_URL")
+
+  if [[ -n "$session" ]]; then
+    global_flags+=("--session" "$session")
+  fi
+
+  if [[ -n "$dir" ]]; then
+    global_flags+=("--dir" "$dir")
+  fi
+
+  local run_flags=()
+  for f in "${files[@]}"; do
+    run_flags+=("--file=${f}")
+  done
+
+  # Augment PATH
+  export PATH="${HOME}/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
+
+  echo "$prompt" | "$OPENCODE_BIN" "${global_flags[@]}" run "${run_flags[@]}"
+}
+
+cmd_sessions() {
+  discover_server
+
+  local curl_args=(-sf "${SERVER_URL}/session")
+  if [[ -n "$SERVER_AUTH" ]]; then
+    curl_args+=(-u "$SERVER_AUTH")
+  fi
+
+  curl "${curl_args[@]}" | jq .
+}
+
+cmd_server() {
+  discover_server
+
+  echo "target:  $SERVER_TARGET"
+  echo "url:     $SERVER_URL"
+  if [[ -n "$SERVER_AUTH" ]]; then
+    echo "auth:    (configured)"
+  fi
+}
+
+cmd_attach() {
+  discover_server
+
+  export PATH="${HOME}/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
+
+  local args=("$SERVER_URL")
+  if [[ -n "${1:-}" ]]; then
+    args+=("$@")
+  fi
+
+  exec "$OPENCODE_BIN" attach "${args[@]}"
+}
+
+# --- Main ---
+
+case "${1:-}" in
+  run)      shift; cmd_run "$@" ;;
+  sessions) cmd_sessions ;;
+  server)   cmd_server ;;
+  attach)   shift; cmd_attach "$@" ;;
+  -h|--help|"")
+    echo "usage: aside <command> [options]"
+    echo ""
+    echo "commands:"
+    echo "  run [-s id] [-d dir] [-f file] \"prompt\"   dispatch prompt"
+    echo "  sessions                                   list sessions (JSON)"
+    echo "  server                                     show active server"
+    echo "  attach                                     open opencode TUI"
+    ;;
+  *)
+    echo "error: unknown command: $1" >&2
+    echo "run 'aside --help' for usage" >&2
+    exit 1
+    ;;
+esac
