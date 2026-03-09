@@ -1,11 +1,11 @@
 ---
 name: aside
-description: Dispatch voice-to-code prompts via the Aside CLI — run prompts against OpenCode sessions, list sessions, check server status, and open the TUI.
+description: Create new or append to existing OpenCode sessions via the Aside CLI — dispatch prompts, list sessions, check server status, and open the TUI.
 ---
 
 # Aside CLI
 
-Use this skill when the user wants to interact with [Aside](https://github.com/ericclemmons/aside) or dispatch prompts to OpenCode via the `aside` CLI.
+Use this skill when the user wants to create new OpenCode sessions or append prompts to existing ones via the [Aside](https://github.com/ericclemmons/aside) CLI.
 
 ## Install
 
@@ -68,8 +68,8 @@ aside attach
 
 1. Check the server: `aside server`
 2. List sessions: `aside sessions`
-3. New prompt: `aside prompt "do the thing"`
-4. Continue a session: `aside --session <id> prompt "follow up"`
+3. Create a new session: `aside prompt "do the thing"`
+4. Append to an existing session: `aside --session <id> prompt "follow up"`
 
 ## Notes
 
