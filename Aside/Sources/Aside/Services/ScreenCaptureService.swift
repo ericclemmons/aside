@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import AsideCore
 
 /// Manages screencapture subprocess for interactive screen/window capture.
@@ -14,9 +15,15 @@ final class ScreenCaptureService: ScreenCaptureServiceProtocol {
     }
 
     func stopCapture() {
-        process?.terminate()
+        process?.interrupt()  // SIGINT lets screencapture restore the cursor
         process = nil
         onCapture = nil
+        // screencapture may not restore cursor before exiting — nudge the cursor
+        // to force the window server to recalculate it from the window under it.
+        let pos = NSEvent.mouseLocation
+        if let screen = NSScreen.main {
+            CGWarpMouseCursorPosition(CGPoint(x: pos.x, y: screen.frame.height - pos.y))
+        }
     }
 
     func deleteFiles(_ paths: [String]) {

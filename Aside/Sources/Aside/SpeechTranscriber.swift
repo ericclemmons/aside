@@ -16,7 +16,6 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
     private let audioEngine = AVAudioEngine()
 
     private var finalizeTimeoutTask: Task<Void, Never>?
-    private var hasDeliveredFinalResult = false
     /// Incremented each session to discard stale callbacks from cancelled tasks.
     private var sessionID: UInt64 = 0
 
@@ -41,70 +40,135 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
         return micStatus
     }
 
+    // MARK: - Recording lifecycle
+
     func startRecording() {
-        guard !isRecording else { NSLog("[SpeechTranscriber] Already recording, skipping"); return }
-        guard let recognizer = speechRecognizer, recognizer.isAvailable else {
-            NSLog("[SpeechTranscriber] Recognizer unavailable (nil=%d, available=%d)", speechRecognizer == nil ? 1 : 0, speechRecognizer?.isAvailable == true ? 1 : 0)
+        // Re-create recognizer if previous one is gone or stuck
+        if speechRecognizer == nil {
+            speechRecognizer = SFSpeechRecognizer(locale: Locale.current)
+        }
+        guard let recognizer = speechRecognizer else {
+            NSLog("[SpeechTranscriber] Recognizer is nil")
             return
         }
 
+        // Cancel any pending finalization — a new session supersedes it
+        finalizeTimeoutTask?.cancel()
+        finalizeTimeoutTask = nil
+
+        // Do NOT explicitly cancel the old recognition task here.
+        // SFSpeechRecognizer handles the transition internally when
+        // we create a new task, and avoids the "recognizer unavailable
+        // after cancel" state that breaks tap-to-dispatch.
+
         sessionID &+= 1
-        cleanupSessionState()
+        let currentSession = sessionID
         transcribedText = ""
         audioLevel = 0
-        hasDeliveredFinalResult = false
 
-        do {
-            try startSpeechRecognition(recognizer: recognizer)
-            isRecording = true
-            NSLog("[SpeechTranscriber] Recording started successfully")
-        } catch {
-            NSLog("[SpeechTranscriber] Failed to start recording: %@", error.localizedDescription)
-            cleanupSessionState()
+        // New recognition request — the audio tap feeds whichever request
+        // is assigned to self.recognitionRequest
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        request.taskHint = .dictation
+        if !customWords.isEmpty {
+            request.contextualStrings = customWords
         }
+        recognitionRequest = request
+
+        // Start audio engine if not already running (reused across tap-to-dispatch)
+        if !audioEngine.isRunning {
+            do {
+                try installTapAndStartEngine()
+            } catch {
+                NSLog("[SpeechTranscriber] Failed to start audio engine: %@", error.localizedDescription)
+                recognitionRequest = nil
+                return
+            }
+        }
+
+        // Create new recognition task — implicitly supersedes any old task
+        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            guard let self else { return }
+
+            if let result {
+                let text = result.bestTranscription.formattedString
+                NSLog("[SpeechTranscriber] Got result: isFinal=%d, session=%llu, text='%@'",
+                      result.isFinal ? 1 : 0, currentSession, text)
+                Task { @MainActor in
+                    guard self.sessionID == currentSession else { return }
+                    self.transcribedText = text
+                    if result.isFinal {
+                        self.finishRecognition(session: currentSession, text: text)
+                    }
+                }
+            }
+
+            if let error {
+                let nsError = error as NSError
+                NSLog("[SpeechTranscriber] Recognition error: session=%llu domain=%@ code=%d desc=%@",
+                      currentSession, nsError.domain, nsError.code, nsError.localizedDescription)
+                Task { @MainActor in
+                    guard self.sessionID == currentSession else { return }
+                    if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
+                        self.finishRecognition(session: currentSession, text: "")
+                    } else {
+                        self.finishRecognition(session: currentSession, text: self.transcribedText)
+                    }
+                }
+            }
+        }
+
+        isRecording = true
+        NSLog("[SpeechTranscriber] Recording started (session=%llu)", sessionID)
     }
 
     func stopRecording() {
-        guard isRecording else { return }
-
-        stopAudioCapture()
+        let session = sessionID
         isRecording = false
 
-        finalizeTimeoutTask?.cancel()
-        finalizeTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(900))
-            await MainActor.run {
-                self?.forceFinalizeIfNeeded()
+        // Signal end of audio — recognizer will finalize
+        recognitionRequest?.endAudio()
+        recognitionRequest = nil
+
+        let currentText = transcribedText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if currentText.isEmpty {
+            // TAP-TO-DISPATCH: No text → deliver empty result synchronously.
+            // The callback may trigger startRecording immediately (same call stack),
+            // which creates a new recognition task before the recognizer enters
+            // a cancelled/unavailable state.
+            NSLog("[SpeechTranscriber] stopRecording: no text, delivering empty result (session=%llu)", session)
+            onTranscriptionFinished?("")
+
+            // If the callback didn't start a new recording, clean up
+            if !isRecording {
+                recognitionTask?.cancel()
+                recognitionTask = nil
+                stopEngine()
+            }
+        } else {
+            // HOLD-TO-TYPE: Has text → wait for recognizer to deliver final result.
+            // The isFinal callback usually arrives within ~200ms. Timeout at 900ms.
+            NSLog("[SpeechTranscriber] stopRecording: has text, waiting for final (session=%llu)", session)
+            finalizeTimeoutTask?.cancel()
+            finalizeTimeoutTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(900))
+                await MainActor.run {
+                    guard let self, self.sessionID == session else { return }
+                    NSLog("[SpeechTranscriber] Finalization timeout (session=%llu)", session)
+                    self.finishRecognition(session: session, text: self.transcribedText)
+                }
             }
         }
     }
 
-    private func cleanupSessionState() {
-        finalizeTimeoutTask?.cancel()
-        finalizeTimeoutTask = nil
+    // MARK: - Private
 
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
-    }
+    private func finishRecognition(session: UInt64, text: String) {
+        guard session == sessionID else { return }
 
-    private func stopAudioCapture() {
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
-        audioEngine.inputNode.removeTap(onBus: 0)
-        recognitionRequest?.endAudio()
-    }
-
-    private func forceFinalizeIfNeeded() {
-        guard !hasDeliveredFinalResult else { return }
-        finishRecognition(with: transcribedText)
-    }
-
-    private func finishRecognition(with text: String) {
-        guard !hasDeliveredFinalResult else { NSLog("[SpeechTranscriber] Already delivered final, skipping"); return }
-        hasDeliveredFinalResult = true
-        NSLog("[SpeechTranscriber] Finishing recognition with text: '%@'", text)
+        NSLog("[SpeechTranscriber] Finishing recognition (session=%llu, text='%@')", session, text)
 
         finalizeTimeoutTask?.cancel()
         finalizeTimeoutTask = nil
@@ -114,29 +178,19 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
         recognitionRequest = nil
 
         onTranscriptionFinished?(text.trimmingCharacters(in: .whitespacesAndNewlines))
+
+        // If no new recording was started by the callback, shut down audio
+        if !isRecording {
+            stopEngine()
+        }
     }
 
-    private func startSpeechRecognition(recognizer: SFSpeechRecognizer) throws {
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
-
-        if audioEngine.isRunning {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
-        }
-
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        request.taskHint = .dictation
-        if !customWords.isEmpty {
-            request.contextualStrings = customWords
-        }
-        recognitionRequest = request
-
+    private func installTapAndStartEngine() throws {
         let inputNode = audioEngine.inputNode
+        inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
             guard let self else { return }
+            // Feed audio to the current request (nil between sessions → no-op)
             self.recognitionRequest?.append(buffer)
 
             guard let channelData = buffer.floatChannelData?[0] else { return }
@@ -157,37 +211,14 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
 
         audioEngine.prepare()
         try audioEngine.start()
+        NSLog("[SpeechTranscriber] Audio engine started")
+    }
 
-        let currentSession = sessionID
-        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            guard let self else { return }
-
-            if let result {
-                let text = result.bestTranscription.formattedString
-                NSLog("[SpeechTranscriber] Got result: isFinal=%d, text='%@'", result.isFinal ? 1 : 0, text)
-                Task { @MainActor in
-                    guard self.sessionID == currentSession else { NSLog("[SpeechTranscriber] Stale session, ignoring"); return }
-                    self.transcribedText = text
-                    if result.isFinal {
-                        self.finishRecognition(with: text)
-                    }
-                }
-            }
-
-            if let error {
-                let nsError = error as NSError
-                NSLog("[SpeechTranscriber] Recognition error: domain=%@ code=%d desc=%@", nsError.domain, nsError.code, nsError.localizedDescription)
-
-                Task { @MainActor in
-                    guard self.sessionID == currentSession else { return }
-                    if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
-                        self.finishRecognition(with: "")
-                        return
-                    }
-
-                    self.finishRecognition(with: self.transcribedText)
-                }
-            }
+    private func stopEngine() {
+        if audioEngine.isRunning {
+            audioEngine.stop()
+            NSLog("[SpeechTranscriber] Audio engine stopped")
         }
+        audioEngine.inputNode.removeTap(onBus: 0)
     }
 }
