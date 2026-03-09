@@ -2,6 +2,10 @@
 
 A macOS menu bar app for voice-driven coding. Press a hotkey, speak, and dispatch prompts to [OpenCode](https://opencode.ai/) with full window context — selected text, URLs, everything.
 
+<p align="center">
+  <img src="assets/setup.png" alt="Aside setup wizard" width="480" />
+</p>
+
 ## How it works
 
 1. **Tap Right Option** from anywhere in macOS
