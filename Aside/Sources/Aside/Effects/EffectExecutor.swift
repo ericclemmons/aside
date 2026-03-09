@@ -18,7 +18,14 @@ final class EffectExecutor {
     var historyManager: TranscriptionHistoryManager?
     var overlayWindow: RecordingOverlayWindow?
     var overlayState: OverlayState?
-    var enhancer: TextEnhancer?
+    #if canImport(FoundationModels)
+    @available(macOS 26.0, *)
+    var enhancer: TextEnhancer? {
+        get { _enhancer as? TextEnhancer }
+        set { _enhancer = newValue }
+    }
+    #endif
+    private var _enhancer: Any?
     var customWordsManager: CustomWordsManager?
 
     init(store: AppStore) {
@@ -52,23 +59,24 @@ final class EffectExecutor {
 
         case .enhanceText(let text):
             Task {
-                guard let enhancer else {
-                    callback(.enhancementFinished(text: text))
-                    return
-                }
-                do {
-                    var sysPrompt = UserDefaults.standard.string(forKey: AppPreferenceKey.enhancementSystemPrompt)
-                        ?? AppPreferenceKey.defaultEnhancementPrompt
-                    let words = customWordsManager?.words ?? []
-                    if !words.isEmpty {
-                        sysPrompt += "\n\nIMPORTANT: Preserve these custom words exactly: \(words.joined(separator: ", "))."
+                #if canImport(FoundationModels)
+                if #available(macOS 26.0, *), let enhancer = self.enhancer {
+                    do {
+                        var sysPrompt = UserDefaults.standard.string(forKey: AppPreferenceKey.enhancementSystemPrompt)
+                            ?? AppPreferenceKey.defaultEnhancementPrompt
+                        let words = customWordsManager?.words ?? []
+                        if !words.isEmpty {
+                            sysPrompt += "\n\nIMPORTANT: Preserve these custom words exactly: \(words.joined(separator: ", "))."
+                        }
+                        let enhanced = try await enhancer.enhance(text, systemPrompt: sysPrompt)
+                        callback(.enhancementFinished(text: enhanced))
+                        return
+                    } catch {
+                        NSLog("[EffectExecutor] Enhancement failed: \(error)")
                     }
-                    let enhanced = try await enhancer.enhance(text, systemPrompt: sysPrompt)
-                    callback(.enhancementFinished(text: enhanced))
-                } catch {
-                    NSLog("[EffectExecutor] Enhancement failed: \(error)")
-                    callback(.enhancementFinished(text: text))
                 }
+                #endif
+                callback(.enhancementFinished(text: text))
             }
 
         case .startScreenCapture:

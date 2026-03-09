@@ -15,7 +15,11 @@ build-release:
 release: build-release
 	@rm -rf "$(ASIDE_APP)"
 	@mkdir -p "$(ASIDE_APP)/Contents/MacOS" "$(ASIDE_APP)/Contents/Resources"
-	@cp "$$(cd "$(ASIDE_DIR)" && swift build -c release --show-bin-path)/Aside" "$(ASIDE_BUNDLE_BIN)"
+	@BIN_PATH=$$(cd "$(ASIDE_DIR)" && swift build -c release --show-bin-path); \
+	cp "$$BIN_PATH/Aside" "$(ASIDE_BUNDLE_BIN)"; \
+	if [ -d "$$BIN_PATH/Aside_Aside.bundle" ]; then \
+		cp -R "$$BIN_PATH/Aside_Aside.bundle" "$(ASIDE_APP)/"; \
+	fi
 	@strip "$(ASIDE_BUNDLE_BIN)"
 	@cp "$(ASIDE_DIR)/Sources/Aside/Info.plist" "$(ASIDE_APP)/Contents/Info.plist"
 	@cp "$(ASIDE_DIR)/AppIcon.icns" "$(ASIDE_APP)/Contents/Resources/AppIcon.icns"
