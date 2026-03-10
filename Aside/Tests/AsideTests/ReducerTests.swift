@@ -35,7 +35,7 @@ final class ReducerTests: XCTestCase {
         let (phase, effects) = send(.appLaunched, phase: .idle, context: &ctx)
         XCTAssertEqual(phase, .idle)
         XCTAssertTrue(effects.contains(.checkPermissions))
-        XCTAssertTrue(effects.contains(.startAsideServer))
+        XCTAssertTrue(effects.contains(.startDesktopServerDiscovery))
     }
 
     // MARK: - Onboarding: Permissions
@@ -329,17 +329,17 @@ final class ReducerTests: XCTestCase {
 
     // MARK: - Server discovery (any phase)
 
-    func testServerDiscoveredFromAnyPhase() {
+    func testDesktopServerDiscovered() {
         var ctx = makeContext()
-        let (phase, _) = send(.serverDiscovered(testServer), phase: .idle, context: &ctx)
+        let (phase, _) = send(.desktopServerDiscovered(testServer), phase: .idle, context: &ctx)
         XCTAssertEqual(phase, .idle)
         XCTAssertEqual(ctx.server, testServer)
         XCTAssertTrue(ctx.openCodeConnected)
     }
 
-    func testServerDisconnected() {
+    func testDesktopServerDisconnected() {
         var ctx = makeContext(server: testServer)
-        let (_, _) = send(.serverDiscovered(nil), phase: .recording, context: &ctx)
+        let (_, _) = send(.desktopServerDiscovered(nil), phase: .recording, context: &ctx)
         XCTAssertNil(ctx.server)
         XCTAssertFalse(ctx.openCodeConnected)
     }

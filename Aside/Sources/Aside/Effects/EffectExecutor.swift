@@ -130,11 +130,6 @@ final class EffectExecutor {
                 callback(.permissionsChecked(status))
             }
 
-        case .startAsideServer:
-            openCodeService?.startAsideServer { server in
-                callback(.serverDiscovered(server))
-            }
-
         case .startDesktopServerDiscovery:
             openCodeService?.startDesktopDiscovery { server in
                 callback(.desktopServerDiscovered(server))

@@ -25,10 +25,6 @@ struct AsideApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     // Store — starts in onboardingPermissions; setup wizard handles skip-if-granted
     let store = AppStore(phase: .onboardingPermissions, context: AppContext(
-        selectedServerTarget: {
-            let raw = UserDefaults.standard.string(forKey: AppPreferenceKey.selectedServerTarget)
-            return ServerTarget(rawValue: raw ?? "") ?? .aside
-        }(),
         transcriptionEngine: {
             let raw = UserDefaults.standard.string(forKey: AppPreferenceKey.transcriptionEngine)
             return TranscriptionEngine(rawValue: raw ?? "") ?? .dictation
@@ -226,36 +222,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        // MARK: Server selector header
-        let headerItem = NSMenuItem(title: "Server", action: nil, keyEquivalent: "")
-        headerItem.isEnabled = false
-        headerItem.attributedTitle = NSAttributedString(
-            string: "Server",
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-                .foregroundColor: NSColor.secondaryLabelColor
-            ]
-        )
-        menu.addItem(headerItem)
-
-        let selectedTarget = store.context.selectedServerTarget
-
-        let asideItem = makeServerMenuItem(
-            label: "Aside",
-            port: OpenCodeService.asidePort,
-            server: store.context.asideServer,
-            isSelected: selectedTarget == .aside,
-            target: .aside
-        )
-        menu.addItem(asideItem)
-
-        let desktopItem = makeServerMenuItem(
-            label: "OpenCode Desktop",
-            port: store.context.desktopServer?.port,
-            server: store.context.desktopServer,
-            isSelected: selectedTarget == .desktop,
-            target: .desktop
-        )
+        // MARK: OpenCode Desktop status
+        let desktopItem = NSMenuItem(title: "OpenCode Desktop", action: #selector(openOpenCodeDesktop), keyEquivalent: "")
+        desktopItem.target = self
+        let isRunning = store.context.openCodeConnected
+        let statusSuffix = isRunning ? " (Running)" : " (Not Started)"
+        let attrTitle = NSMutableAttributedString()
+        attrTitle.append(NSAttributedString(string: "OpenCode Desktop", attributes: [
+            .font: NSFont.menuFont(ofSize: 13)
+        ]))
+        attrTitle.append(NSAttributedString(string: statusSuffix, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: isRunning ? NSColor.systemGreen : NSColor.tertiaryLabelColor
+        ]))
+        desktopItem.attributedTitle = attrTitle
+        if let url = Bundle.module.url(forResource: "opencode.logo", withExtension: "svg"),
+           let img = NSImage(contentsOf: url) {
+            img.isTemplate = true
+            img.size = NSSize(width: 16, height: 16)
+            desktopItem.image = img
+        }
         menu.addItem(desktopItem)
 
         menu.addItem(NSMenuItem.separator())
@@ -317,33 +303,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         quitItem.target = self
         quitItem.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
         menu.addItem(quitItem)
-    }
-
-    private func makeServerMenuItem(label: String, port: Int?, server: DiscoveredServer?, isSelected: Bool, target: ServerTarget) -> NSMenuItem {
-        let portSuffix = (server != nil && port != nil) ? " (\(port!))" : " (Not Started)"
-        let item = NSMenuItem(title: label + portSuffix, action: #selector(selectServer(_:)), keyEquivalent: "")
-        item.target = self
-        item.representedObject = target.rawValue
-        item.state = isSelected ? .on : .off
-
-        // Label normal, port muted
-        let attrTitle = NSMutableAttributedString()
-        attrTitle.append(NSAttributedString(string: label, attributes: [
-            .font: NSFont.menuFont(ofSize: 13)
-        ]))
-        attrTitle.append(NSAttributedString(string: portSuffix, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
-            .foregroundColor: NSColor.tertiaryLabelColor
-        ]))
-        item.attributedTitle = attrTitle
-        return item
-    }
-
-    @objc private func selectServer(_ sender: NSMenuItem) {
-        guard let rawValue = sender.representedObject as? String,
-              let target = ServerTarget(rawValue: rawValue) else { return }
-        UserDefaults.standard.set(target.rawValue, forKey: AppPreferenceKey.selectedServerTarget)
-        store.send(.serverTargetChanged(target))
     }
 
     @objc private func selectEngine(_ sender: NSMenuItem) {
@@ -498,7 +457,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func quit() {
         hotkeyService.stop()
         openCodeService.stopDiscovery()
-        openCodeService.stopServer()
         for token in appObserverTokens {
             NotificationCenter.default.removeObserver(token)
         }

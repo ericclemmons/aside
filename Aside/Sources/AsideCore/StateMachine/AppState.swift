@@ -46,9 +46,7 @@ public enum AppEvent: Equatable, Sendable {
     case enhancementFinished(text: String)
 
     // Server
-    case serverDiscovered(DiscoveredServer?)
     case desktopServerDiscovered(DiscoveredServer?)
-    case serverTargetChanged(ServerTarget)
     case sessionsRefreshed(sessions: [Session], projectDirectory: String?)
 
     // Context capture
@@ -73,10 +71,7 @@ public struct AppContext: Equatable, Sendable {
     public var permissions: PermissionStatus
 
     // Server
-    public var server: DiscoveredServer?         // The active server (based on selection)
-    public var asideServer: DiscoveredServer?     // Aside's own server (port 4096)
-    public var desktopServer: DiscoveredServer?   // OpenCode Desktop's server (discovered)
-    public var selectedServerTarget: ServerTarget
+    public var server: DiscoveredServer?         // OpenCode Desktop server (discovered via ps)
     public var sessions: [Session]
     public var currentProjectDirectory: String?
 
@@ -108,9 +103,6 @@ public struct AppContext: Equatable, Sendable {
     public init(
         permissions: PermissionStatus = PermissionStatus(),
         server: DiscoveredServer? = nil,
-        asideServer: DiscoveredServer? = nil,
-        desktopServer: DiscoveredServer? = nil,
-        selectedServerTarget: ServerTarget = .aside,
         sessions: [Session] = [],
         currentProjectDirectory: String? = nil,
         transcribedText: String = "",
@@ -128,9 +120,6 @@ public struct AppContext: Equatable, Sendable {
     ) {
         self.permissions = permissions
         self.server = server
-        self.asideServer = asideServer
-        self.desktopServer = desktopServer
-        self.selectedServerTarget = selectedServerTarget
         self.sessions = sessions
         self.currentProjectDirectory = currentProjectDirectory
         self.transcribedText = transcribedText

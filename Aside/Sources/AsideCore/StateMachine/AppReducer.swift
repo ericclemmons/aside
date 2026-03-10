@@ -8,7 +8,7 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
     // MARK: - App Lifecycle
 
     case (_, .appLaunched):
-        return (phase, [.checkPermissions, .startAsideServer, .startDesktopServerDiscovery, .startPermissionPolling])
+        return (phase, [.checkPermissions, .startDesktopServerDiscovery, .startPermissionPolling])
 
     // MARK: - Onboarding: Permissions
 
@@ -221,30 +221,9 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
 
     // MARK: - Server discovery (any phase)
 
-    case (_, .serverDiscovered(let server)):
-        context.asideServer = server
-        // Update active server based on selection
-        if context.selectedServerTarget == .aside {
-            context.server = server
-        }
-        context.openCodeConnected = context.server != nil
-        return (phase, [])
-
     case (_, .desktopServerDiscovered(let server)):
-        context.desktopServer = server
-        if context.selectedServerTarget == .desktop {
-            context.server = server
-        }
-        context.openCodeConnected = context.server != nil
-        return (phase, [])
-
-    case (_, .serverTargetChanged(let target)):
-        context.selectedServerTarget = target
-        switch target {
-        case .aside: context.server = context.asideServer
-        case .desktop: context.server = context.desktopServer
-        }
-        context.openCodeConnected = context.server != nil
+        context.server = server
+        context.openCodeConnected = server != nil
         return (phase, [])
 
     case (_, .sessionsRefreshed(let sessions, let projectDir)):

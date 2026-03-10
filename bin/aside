@@ -2,37 +2,10 @@
 set -euo pipefail
 
 OPENCODE_BIN="${HOME}/.opencode/bin/opencode"
-ASIDE_PORT=4096
-BUNDLE_ID="com.ericclemmons.aside.app"
 
 # --- Server Discovery ---
 
 discover_server() {
-  local target
-  target=$(defaults read "$BUNDLE_ID" selectedServerTarget 2>/dev/null || echo "aside")
-
-  case "$target" in
-    desktop)
-      discover_desktop
-      ;;
-    *)
-      # Default to aside server
-      SERVER_HOST="127.0.0.1"
-      SERVER_PORT="$ASIDE_PORT"
-      SERVER_URL="http://127.0.0.1:${ASIDE_PORT}"
-      SERVER_AUTH=""
-      SERVER_TARGET="aside"
-
-      # Verify aside server is running
-      if ! curl -sf "${SERVER_URL}/session" >/dev/null 2>&1; then
-        json_error "Aside server not running on port ${ASIDE_PORT}. Start Aside.app or: defaults write ${BUNDLE_ID} selectedServerTarget desktop"
-        exit 1
-      fi
-      ;;
-  esac
-}
-
-discover_desktop() {
   local ps_output line port host username password
   ps_output=$(ps ewwA -o pid,command 2>/dev/null) || {
     json_error "failed to list processes"
@@ -75,14 +48,13 @@ discover_desktop() {
     SERVER_PORT="$port"
     SERVER_URL="http://${host}:${port}"
     SERVER_AUTH="${username}:${password}"
-    SERVER_TARGET="desktop"
 
     export OPENCODE_SERVER_USERNAME="$username"
     export OPENCODE_SERVER_PASSWORD="$password"
     return 0
   done <<< "$ps_output"
 
-  json_error "OpenCode Desktop server not found. Start OpenCode Desktop or: defaults write ${BUNDLE_ID} selectedServerTarget aside"
+  json_error "OpenCode Desktop server not found. Start OpenCode Desktop first."
   exit 1
 }
 
@@ -185,10 +157,9 @@ cmd_server() {
   fi
 
   jq -n \
-    --arg target "$SERVER_TARGET" \
     --arg url "$SERVER_URL" \
     --argjson auth "$auth" \
-    '{target: $target, url: $url, auth: $auth}'
+    '{url: $url, auth: $auth}'
 }
 
 cmd_attach() {
