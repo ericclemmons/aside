@@ -236,12 +236,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .foregroundColor: isRunning ? NSColor.systemGreen : NSColor.tertiaryLabelColor
         ]))
         desktopItem.attributedTitle = attrTitle
-        if let url = Bundle.module.url(forResource: "opencode.logo", withExtension: "svg"),
-           let img = NSImage(contentsOf: url) {
-            img.isTemplate = true
-            img.size = NSSize(width: 16, height: 16)
-            desktopItem.image = img
+        let dotSize = NSSize(width: 8, height: 8)
+        let dotImage = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
+            let dotRect = NSRect(
+                x: (rect.width - dotSize.width) / 2,
+                y: (rect.height - dotSize.height) / 2,
+                width: dotSize.width,
+                height: dotSize.height
+            )
+            let color: NSColor = isRunning ? .systemGreen : .systemRed
+            color.setFill()
+            NSBezierPath(ovalIn: dotRect).fill()
+            return true
         }
+        desktopItem.image = dotImage
         menu.addItem(desktopItem)
 
         menu.addItem(NSMenuItem.separator())
