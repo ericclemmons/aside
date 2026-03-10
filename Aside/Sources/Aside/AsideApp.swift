@@ -252,7 +252,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 string: "opencode attach …",
                 attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)]
             )
-            attachItem.image = NSImage(systemSymbolName: "keyboard", accessibilityDescription: nil)
+            attachItem.state = .on
+            attachItem.onStateImage = NSImage(systemSymbolName: "keyboard", accessibilityDescription: nil)
 
             let submenu = NSMenu()
             attachItem.submenu = submenu
@@ -291,7 +292,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let settingsItem = NSMenuItem(title: "Vocabulary...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
-        settingsItem.image = NSImage(systemSymbolName: "text.book.closed", accessibilityDescription: nil)
+        settingsItem.state = .on
+        settingsItem.onStateImage = NSImage(systemSymbolName: "text.book.closed", accessibilityDescription: nil)
         menu.addItem(settingsItem)
 
         menu.addItem(NSMenuItem.separator())
@@ -299,7 +301,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
         let quitItem = NSMenuItem(title: "Quit Aside (v\(version))", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
-        quitItem.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
+        quitItem.state = .on
+        quitItem.onStateImage = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
         menu.addItem(quitItem)
     }
 
