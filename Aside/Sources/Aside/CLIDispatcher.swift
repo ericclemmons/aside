@@ -21,8 +21,8 @@ struct CLIDispatcher {
         // Prefer OpenCode Desktop's bundled CLI, fall back to opencode on PATH
         let opencodePath = server.cliPath.isEmpty ? "\(home)/.opencode/bin/opencode" : server.cliPath
 
-        // Build arguments: run --attach <url> [--session id] [--dir dir] [--file=path] -- <prompt>
-        var args = ["run", "--attach", server.attachTarget]
+        // Global flags before subcommand, then run -- <prompt>
+        var args = ["--attach", server.attachTarget]
 
         if let sessionID, !sessionID.isEmpty {
             args += ["--session", sessionID]
@@ -31,6 +31,8 @@ struct CLIDispatcher {
         if let workingDirectory, !workingDirectory.isEmpty {
             args += ["--dir", workingDirectory]
         }
+
+        args.append("run")
 
         for path in filePaths {
             args.append("--file=\(path)")

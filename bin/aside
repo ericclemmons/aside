@@ -137,7 +137,7 @@ cmd_prompt() {
   # Augment PATH
   export PATH="${HOME}/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
 
-  $SERVER_CLI run "${global_flags[@]}" "${run_flags[@]}" -- $prompt
+  $SERVER_CLI "${global_flags[@]}" run "${run_flags[@]}" -- $prompt
 }
 
 cmd_sessions() {
