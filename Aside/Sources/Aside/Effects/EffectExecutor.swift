@@ -196,6 +196,13 @@ final class EffectExecutor {
             keyDown?.post(tap: .cgAnnotatedSessionEventTap)
             keyUp?.post(tap: .cgAnnotatedSessionEventTap)
         }
+
+        if UserDefaults.standard.bool(forKey: AppPreferenceKey.autoSubmit) {
+            let returnDown = CGEvent(keyboardEventSource: source, virtualKey: 0x24, keyDown: true)
+            let returnUp = CGEvent(keyboardEventSource: source, virtualKey: 0x24, keyDown: false)
+            returnDown?.post(tap: .cgAnnotatedSessionEventTap)
+            returnUp?.post(tap: .cgAnnotatedSessionEventTap)
+        }
     }
 
     // MARK: - Build destination list

@@ -73,6 +73,7 @@ public enum AppPreferenceKey {
     public static let enhancementSystemPrompt = "enhancementSystemPrompt"
     public static let hotkeyMode = "hotkeyMode"
     public static let whisperModelVariant = "whisperModelVariant"
+    public static let autoSubmit = "autoSubmit"
 
     public static let defaultEnhancementPrompt = """
         You are Aside, a speech-to-text transcription assistant. Your only job is to \

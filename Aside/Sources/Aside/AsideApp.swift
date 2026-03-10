@@ -242,6 +242,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(item)
         }
 
+        let autoSubmitItem = NSMenuItem(title: "Press Enter after typing", action: #selector(toggleAutoSubmit(_:)), keyEquivalent: "")
+        autoSubmitItem.target = self
+        autoSubmitItem.state = UserDefaults.standard.bool(forKey: AppPreferenceKey.autoSubmit) ? .on : .off
+        menu.addItem(autoSubmitItem)
+
         menu.addItem(NSMenuItem.separator())
 
         // Attach submenu (only if connected)
@@ -311,6 +316,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
               let engine = TranscriptionEngine(rawValue: rawValue) else { return }
         UserDefaults.standard.set(engine.rawValue, forKey: AppPreferenceKey.transcriptionEngine)
         store.updateContext { $0.transcriptionEngine = engine }
+    }
+
+    @objc private func toggleAutoSubmit(_ sender: NSMenuItem) {
+        let current = UserDefaults.standard.bool(forKey: AppPreferenceKey.autoSubmit)
+        UserDefaults.standard.set(!current, forKey: AppPreferenceKey.autoSubmit)
     }
 
     // MARK: - Actions
