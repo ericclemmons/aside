@@ -6,7 +6,7 @@ OPENCODE_BIN="${HOME}/.opencode/bin/opencode"
 # --- Server Discovery ---
 
 discover_server() {
-  local ps_output line port host username password cli_path
+  local ps_output line port host username password
   ps_output=$(ps ewwA -o pid,command 2>/dev/null) || {
     json_error "failed to list processes"
     exit 1
@@ -44,14 +44,10 @@ discover_server() {
       continue  # password required
     fi
 
-    # Extract CLI path from process line
-    cli_path=$(echo "$line" | grep -oE '/[^ ]*opencode-cli' | head -1)
-
     SERVER_HOST="$host"
     SERVER_PORT="$port"
     SERVER_URL="http://${host}:${port}"
     SERVER_AUTH="${username}:${password}"
-    SERVER_CLI="${cli_path:-$OPENCODE_BIN}"
 
     export OPENCODE_SERVER_USERNAME="$username"
     export OPENCODE_SERVER_PASSWORD="$password"
@@ -138,7 +134,7 @@ cmd_prompt() {
   # Augment PATH
   export PATH="${HOME}/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
 
-  $SERVER_CLI run "${global_flags[@]}" "${run_flags[@]}" -- $prompt
+  $OPENCODE_BIN run "${global_flags[@]}" "${run_flags[@]}" -- $prompt
 }
 
 cmd_sessions() {
@@ -181,7 +177,7 @@ cmd_attach() {
     args+=("$@")
   fi
 
-  exec "$SERVER_CLI" attach "${args[@]}"
+  exec "$OPENCODE_BIN" attach "${args[@]}"
 }
 
 # --- Main ---

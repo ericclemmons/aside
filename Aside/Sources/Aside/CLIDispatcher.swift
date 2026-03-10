@@ -18,8 +18,7 @@ struct CLIDispatcher {
         workingDirectory: String? = nil
     ) {
         let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
-        // Prefer OpenCode Desktop's bundled CLI, fall back to ~/.opencode/bin/opencode
-        let opencodePath = server.cliPath.isEmpty ? "\(home)/.opencode/bin/opencode" : server.cliPath
+        let opencodePath = "\(home)/.opencode/bin/opencode"
 
         // Build arguments: run --attach <url> [--session id] [--dir dir] [--file=path] -- <prompt>
         var args = ["run", "--attach", server.attachTarget]
@@ -39,7 +38,25 @@ struct CLIDispatcher {
         args.append("--")
         args += prompt.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
 
-        NSLog("[Dispatch] %@ args=%@", opencodePath, args.description)
+        // Log the full command to a file for debugging
+        let debugCmd = args.map { $0.contains(" ") ? "\"\($0)\"" : $0 }.joined(separator: " ")
+        var envPrefix = ""
+        if !server.username.isEmpty { envPrefix += "OPENCODE_SERVER_USERNAME=\(server.username) " }
+        if !server.password.isEmpty { envPrefix += "OPENCODE_SERVER_PASSWORD=\(server.password) " }
+        let logLine = "[\(ISO8601DateFormatter().string(from: Date()))] \(envPrefix)\(opencodePath) \(debugCmd)\n"
+        NSLog("[Dispatch] %@", logLine.trimmingCharacters(in: .newlines))
+        let logPath = (ProcessInfo.processInfo.environment["HOME"] ?? "/tmp") + "/aside-dispatch.log"
+        if let data = logLine.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: logPath) {
+                if let fh = FileHandle(forWritingAtPath: logPath) {
+                    fh.seekToEndOfFile()
+                    fh.write(data)
+                    fh.closeFile()
+                }
+            } else {
+                FileManager.default.createFile(atPath: logPath, contents: data)
+            }
+        }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: opencodePath)
