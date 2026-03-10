@@ -33,8 +33,8 @@ jobs:
         if: steps.check.outputs.skip == 'false'
         id: context
         run: |
+          CURRENT_VERSION=$(grep -A1 CFBundleShortVersionString Aside/Sources/Aside/Info.plist | grep string | sed 's/.*<string>\(.*\)<\/string>/\1/')
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          CURRENT_VERSION=$(grep -A1 CFBundleShortVersionString Aside/Aside.app/Contents/Info.plist | grep string | sed 's/.*<string>\(.*\)<\/string>/\1/')
 
           if [ -z "$LAST_TAG" ]; then
             COMMITS=$(git log --oneline --no-merges)
@@ -52,15 +52,12 @@ jobs:
           echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
           echo "last_tag=$LAST_TAG" >> $GITHUB_OUTPUT
 
-          # Save commits to file for Claude to read
-          echo "$COMMITS" > /tmp/commits.txt
-
-          # Also get the full diffs for better analysis
-          if [ -n "$LAST_TAG" ]; then
-            git diff "$LAST_TAG"..HEAD -- '*.swift' '*.sh' 'bin/*' 'Makefile' > /tmp/changes.diff 2>/dev/null || true
-          else
-            git diff HEAD~1..HEAD -- '*.swift' '*.sh' 'bin/*' 'Makefile' > /tmp/changes.diff 2>/dev/null || true
-          fi
+          # Save commits for prompt (truncate to fit in env var)
+          {
+            echo "commits<<COMMITS_EOF"
+            echo "$COMMITS" | head -50
+            echo "COMMITS_EOF"
+          } >> $GITHUB_OUTPUT
 
       - name: Determine version with Claude
         if: steps.check.outputs.skip == 'false' && steps.context.outputs.skip != 'true'
@@ -68,39 +65,40 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          direct_prompt: |
-            You are a release manager. Determine the next semantic version bump for this project.
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            You are a release manager. Determine the next semantic version bump.
 
             Current version: ${{ steps.context.outputs.current_version }}
             Last tag: ${{ steps.context.outputs.last_tag }}
 
             Commits since last release:
-            $(cat /tmp/commits.txt)
-
-            Diff summary (source files only):
-            $(head -200 /tmp/changes.diff)
+            ```
+            ${{ steps.context.outputs.commits }}
+            ```
 
             Rules:
-            - MAJOR: breaking changes to user-facing behavior, major UI overhauls, incompatible API changes
+            - MAJOR: breaking changes to user-facing behavior, incompatible API changes
             - MINOR: new features, new commands, significant enhancements
             - PATCH: bug fixes, refactoring, documentation, CI changes, minor tweaks
 
-            Respond with ONLY a single tool call to write the new version to a file. No explanation needed.
-            Write JUST the version number (e.g. "1.0.1") to the file /tmp/next_version.txt
-          allowed_tools: "Write"
+            Write JUST the version number (e.g. "1.0.1") to /tmp/next_version.txt using the Write tool. Nothing else.
+          claude_args: "--allowedTools Write"
 
       - name: Apply version bump
         if: steps.check.outputs.skip == 'false' && steps.context.outputs.skip != 'true'
         run: |
           if [ ! -f /tmp/next_version.txt ]; then
-            echo "::error::Claude did not produce a version"
-            exit 1
+            echo "::warning::Claude did not produce a version, falling back to patch bump"
+            CURRENT="${{ steps.context.outputs.current_version }}"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            NEXT_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          else
+            NEXT_VERSION=$(cat /tmp/next_version.txt | tr -d '[:space:]')
           fi
 
-          NEXT_VERSION=$(cat /tmp/next_version.txt | tr -d '[:space:]')
-
           if [ -z "$NEXT_VERSION" ]; then
-            echo "::error::Empty version from Claude"
+            echo "::error::Empty version"
             exit 1
           fi
 
@@ -125,16 +123,17 @@ jobs:
 
           echo "Bumping version: $CURRENT → $NEXT_VERSION"
 
-          # Update Info.plist
+          # Update both Info.plist files (source + bundle copy)
+          sed -i "s|<string>${CURRENT}</string>|<string>${NEXT_VERSION}</string>|" Aside/Sources/Aside/Info.plist
           sed -i "s|<string>${CURRENT}</string>|<string>${NEXT_VERSION}</string>|" Aside/Aside.app/Contents/Info.plist
 
           # Verify
-          grep -A1 CFBundleShortVersionString Aside/Aside.app/Contents/Info.plist
+          grep -A1 CFBundleShortVersionString Aside/Sources/Aside/Info.plist
 
           # Commit, tag, push
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Aside/Aside.app/Contents/Info.plist
+          git add Aside/Sources/Aside/Info.plist Aside/Aside.app/Contents/Info.plist
           git commit -m "v${NEXT_VERSION}"
           git tag "v${NEXT_VERSION}"
           git push origin main

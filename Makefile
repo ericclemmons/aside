@@ -22,10 +22,6 @@ release: build-release
 	fi
 	@strip "$(ASIDE_BUNDLE_BIN)"
 	@cp "$(ASIDE_DIR)/Sources/Aside/Info.plist" "$(ASIDE_APP)/Contents/Info.plist"
-	@VERSION=$$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//'); \
-	if [ -n "$$VERSION" ]; then \
-		/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $$VERSION" "$(ASIDE_APP)/Contents/Info.plist"; \
-	fi
 	@cp "$(ASIDE_DIR)/AppIcon.icns" "$(ASIDE_APP)/Contents/Resources/AppIcon.icns"
 	@if [ -n "$(CODESIGN_IDENTITY)" ]; then \
 		codesign --force --options runtime \
@@ -39,10 +35,6 @@ release: build-release
 install: install-cli
 	@BIN_PATH=$$(cd "$(ASIDE_DIR)" && swift build --show-bin-path)/Aside; \
 	cp "$$BIN_PATH" "$(ASIDE_BUNDLE_BIN)"; \
-	VERSION=$$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//'); \
-	if [ -n "$$VERSION" ]; then \
-		/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $$VERSION" "$(ASIDE_APP)/Contents/Info.plist"; \
-	fi; \
 	codesign --force --deep --sign "Developer ID Application: Eric Clemmons (D3TJHQZD9N)" --identifier com.ericclemmons.aside.app "$(ASIDE_APP)"; \
 	/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f "$(ASIDE_APP)"
 
