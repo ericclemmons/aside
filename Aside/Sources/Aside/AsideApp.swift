@@ -203,20 +203,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let isRunning = store.context.openCodeConnected
         let desktopItem = NSMenuItem(title: "OpenCode Desktop", action: #selector(openOpenCodeDesktop), keyEquivalent: "")
         desktopItem.target = self
-        let dotSize = NSSize(width: 8, height: 8)
-        let dotImage = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
-            let dotRect = NSRect(
-                x: (rect.width - dotSize.width) / 2,
-                y: (rect.height - dotSize.height) / 2,
-                width: dotSize.width,
-                height: dotSize.height
-            )
-            let color: NSColor = isRunning ? .systemGreen : .systemRed
-            color.setFill()
-            NSBezierPath(ovalIn: dotRect).fill()
+        let dotSize: CGFloat = 6
+        let onImage = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
+            NSColor.systemGreen.setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: (rect.width - dotSize) / 2, dy: (rect.height - dotSize) / 2)).fill()
             return true
         }
-        desktopItem.image = dotImage
+        let offImage = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
+            NSColor.systemRed.setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: (rect.width - dotSize) / 2, dy: (rect.height - dotSize) / 2)).fill()
+            return true
+        }
+        desktopItem.state = isRunning ? .on : .mixed
+        desktopItem.onStateImage = onImage
+        desktopItem.mixedStateImage = offImage
         menu.addItem(desktopItem)
 
         menu.addItem(NSMenuItem.separator())
