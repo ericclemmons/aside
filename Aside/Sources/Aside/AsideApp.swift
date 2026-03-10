@@ -199,6 +199,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     fileprivate func rebuildMenuItems(_ menu: NSMenu) {
         menu.removeAllItems()
 
+        // MARK: OpenCode Desktop status
+        let isRunning = store.context.openCodeConnected
+        let desktopItem = NSMenuItem(title: "OpenCode Desktop", action: #selector(openOpenCodeDesktop), keyEquivalent: "")
+        desktopItem.target = self
+        let dotSize = NSSize(width: 8, height: 8)
+        let dotImage = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
+            let dotRect = NSRect(
+                x: (rect.width - dotSize.width) / 2,
+                y: (rect.height - dotSize.height) / 2,
+                width: dotSize.width,
+                height: dotSize.height
+            )
+            let color: NSColor = isRunning ? .systemGreen : .systemRed
+            color.setFill()
+            NSBezierPath(ovalIn: dotRect).fill()
+            return true
+        }
+        desktopItem.image = dotImage
+        menu.addItem(desktopItem)
+
+        menu.addItem(NSMenuItem.separator())
+
         // MARK: Transcription engine selector
         let transcribeHeader = NSMenuItem(title: "Transcribe with", action: nil, keyEquivalent: "")
         transcribeHeader.isEnabled = false
@@ -219,28 +241,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             item.state = engine == currentEngine ? .on : .off
             menu.addItem(item)
         }
-
-        menu.addItem(NSMenuItem.separator())
-
-        // MARK: OpenCode Desktop status
-        let desktopItem = NSMenuItem(title: "OpenCode Desktop", action: #selector(openOpenCodeDesktop), keyEquivalent: "")
-        desktopItem.target = self
-        let isRunning = store.context.openCodeConnected
-        let dotSize = NSSize(width: 8, height: 8)
-        let dotImage = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
-            let dotRect = NSRect(
-                x: (rect.width - dotSize.width) / 2,
-                y: (rect.height - dotSize.height) / 2,
-                width: dotSize.width,
-                height: dotSize.height
-            )
-            let color: NSColor = isRunning ? .systemGreen : .systemRed
-            color.setFill()
-            NSBezierPath(ovalIn: dotRect).fill()
-            return true
-        }
-        desktopItem.image = dotImage
-        menu.addItem(desktopItem)
 
         menu.addItem(NSMenuItem.separator())
 
