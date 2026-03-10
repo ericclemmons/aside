@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+VERSION="0.1.0"
 OPENCODE_BIN="opencode"
 
 # --- Server Discovery ---
@@ -137,7 +138,7 @@ cmd_prompt() {
   # Augment PATH
   export PATH="${HOME}/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
 
-  $SERVER_CLI "${global_flags[@]}" run "${run_flags[@]}" -- $prompt
+  $SERVER_CLI "${global_flags[@]}" run "${run_flags[@]}" -- "$prompt"
 }
 
 cmd_sessions() {
@@ -196,6 +197,9 @@ while [[ $# -gt 0 ]]; do
       # Check if it's help before treating as unknown
       if [[ "$1" == "-h" || "$1" == "--help" ]]; then
         cmd_help; exit 0
+      fi
+      if [[ "$1" == "-v" || "$1" == "--version" ]]; then
+        echo "aside $VERSION"; exit 0
       fi
       json_error "unknown flag: $1"
       cmd_help >&2
