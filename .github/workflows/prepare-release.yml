@@ -28,88 +28,23 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Gather context and determine version
+      - name: Bump patch version
         if: steps.check.outputs.skip == 'false'
-        id: bump
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          CURRENT_VERSION=$(grep -A1 CFBundleShortVersionString Aside/Sources/Aside/Info.plist | grep string | sed 's/.*<string>\(.*\)<\/string>/\1/')
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-
-          if [ -z "$LAST_TAG" ]; then
-            COMMITS=$(git log --oneline --no-merges | head -50)
-          else
-            COMMITS=$(git log "${LAST_TAG}..HEAD" --oneline --no-merges | head -50)
-          fi
-
-          if [ -z "$COMMITS" ]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          echo "skip=false" >> $GITHUB_OUTPUT
-          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-
-          # Ask Claude for the version bump
-          PROMPT="Current version: ${CURRENT_VERSION}. Commits since ${LAST_TAG:-beginning}:
-          ${COMMITS}
-
-          Based on these commits, what should the next semantic version be?
-          - MAJOR: breaking changes to user-facing behavior, incompatible API changes
-          - MINOR: new features, new commands, significant enhancements
-          - PATCH: bug fixes, refactoring, documentation, CI changes, minor tweaks
-
-          Reply with ONLY the version number, e.g. 1.0.1"
-
-          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
-            -H "content-type: application/json" \
-            -H "x-api-key: ${ANTHROPIC_API_KEY}" \
-            -H "anthropic-version: 2023-06-01" \
-            -d "$(jq -n --arg prompt "$PROMPT" '{
-              model: "claude-haiku-4-5-20251001",
-              max_tokens: 32,
-              messages: [{role: "user", content: $prompt}]
-            }')")
-
-          NEXT_VERSION=$(echo "$RESPONSE" | jq -r '.content[0].text // empty' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-
-          if [ -z "$NEXT_VERSION" ]; then
-            echo "::warning::Claude response: $RESPONSE"
-            echo "::warning::Falling back to patch bump"
-            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
-            NEXT_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
-          fi
-
-          # Ensure version actually increased
-          if [ "$NEXT_VERSION" = "$CURRENT_VERSION" ]; then
-            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
-            NEXT_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
-          fi
+          CURRENT=$(grep -A1 CFBundleShortVersionString Aside/Sources/Aside/Info.plist | grep string | sed 's/.*<string>\(.*\)<\/string>/\1/')
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          NEXT="${MAJOR}.${MINOR}.$((PATCH + 1))"
 
           # Skip if already tagged
-          if git rev-parse "v${NEXT_VERSION}" >/dev/null 2>&1; then
-            echo "Version v${NEXT_VERSION} already tagged, skipping"
-            echo "skip=true" >> $GITHUB_OUTPUT
+          if git rev-parse "v${NEXT}" >/dev/null 2>&1; then
+            echo "v${NEXT} already tagged, skipping"
             exit 0
           fi
 
-          echo "next_version=$NEXT_VERSION" >> $GITHUB_OUTPUT
-          echo "Determined next version: $CURRENT_VERSION → $NEXT_VERSION"
-
-      - name: Bump version, commit, and tag
-        if: steps.check.outputs.skip == 'false' && steps.bump.outputs.skip != 'true'
-        env:
-          CURRENT: ${{ steps.bump.outputs.current_version }}
-          NEXT: ${{ steps.bump.outputs.next_version }}
-        run: |
           echo "Bumping version: $CURRENT → $NEXT"
 
-          # Update both Info.plist files
           sed -i "s|<string>${CURRENT}</string>|<string>${NEXT}</string>|" Aside/Sources/Aside/Info.plist
           sed -i "s|<string>${CURRENT}</string>|<string>${NEXT}</string>|" Aside/Aside.app/Contents/Info.plist
-
-          grep -A1 CFBundleShortVersionString Aside/Sources/Aside/Info.plist
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
