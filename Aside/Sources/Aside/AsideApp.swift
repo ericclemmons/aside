@@ -242,9 +242,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(item)
         }
 
-        let autoSubmitItem = NSMenuItem(title: "Press Enter after typing", action: #selector(toggleAutoSubmit(_:)), keyEquivalent: "")
+        menu.addItem(NSMenuItem.separator())
+
+        let autoSubmitItem = NSMenuItem(title: "", action: #selector(toggleAutoSubmit(_:)), keyEquivalent: "")
         autoSubmitItem.target = self
         autoSubmitItem.state = UserDefaults.standard.bool(forKey: AppPreferenceKey.autoSubmit) ? .on : .off
+        let returnAttachment = NSTextAttachment()
+        returnAttachment.image = NSImage(systemSymbolName: "return", accessibilityDescription: "return")
+        let attrTitle = NSMutableAttributedString(string: "Auto-send message  ")
+        attrTitle.append(NSAttributedString(attachment: returnAttachment))
+        attrTitle.addAttribute(.font, value: NSFont.menuFont(ofSize: 0), range: NSRange(location: 0, length: attrTitle.length))
+        autoSubmitItem.attributedTitle = attrTitle
         menu.addItem(autoSubmitItem)
 
         menu.addItem(NSMenuItem.separator())
