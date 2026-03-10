@@ -36,9 +36,10 @@ struct CLIDispatcher {
             args.append("--file=\(path)")
         }
 
-        args += ["--", prompt]
+        args.append("--")
+        args += prompt.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
 
-        NSLog("[Dispatch] %@ %@", opencodePath, args.joined(separator: " "))
+        NSLog("[Dispatch] %@ args=%@", opencodePath, args.description)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: opencodePath)
