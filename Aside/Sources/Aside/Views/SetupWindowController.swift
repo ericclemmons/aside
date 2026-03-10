@@ -8,6 +8,7 @@ import AsideCore
 class StoreSetupWindowController {
     private var windowController: NSWindowController?
     private var phaseSink: AnyCancellable?
+    private var closingProgrammatically = false
 
     func show(store: AppStore, permissionService: PermissionService) {
         // Check if all permissions already granted
@@ -49,6 +50,14 @@ class StoreSetupWindowController {
         let controller = NSWindowController(window: window)
         windowController = controller
 
+        // If user closes the window manually (X button), dismiss setup so hotkey starts
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+            guard let self, !self.closingProgrammatically else { return }
+            store.send(.setupDismissed)
+            self.phaseSink = nil
+            self.windowController = nil
+        }
+
         // Close window when leaving onboarding
         phaseSink = store.$phase
             .receive(on: RunLoop.main)
@@ -70,9 +79,11 @@ class StoreSetupWindowController {
     }
 
     func close() {
+        closingProgrammatically = true
         phaseSink = nil
         windowController?.window?.close()
         windowController = nil
+        closingProgrammatically = false
     }
 }
 
