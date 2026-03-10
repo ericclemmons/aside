@@ -17,8 +17,8 @@ class StoreSetupWindowController {
               status.screenRecording ? 1 : 0, status.accessibility ? 1 : 0,
               status.allGranted ? 1 : 0)
         store.send(.permissionsChecked(status))
-        if status.allGranted {
-            NSLog("[SetupWindow] All permissions granted, skipping setup")
+        if status.allGranted && store.context.openCodeConnected {
+            NSLog("[SetupWindow] All permissions granted and OpenCode connected, skipping setup")
             store.send(.setupDismissed)
             return
         }
