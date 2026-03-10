@@ -1,15 +1,15 @@
 import Foundation
 import AsideCore
 
-/// Dispatches transcribed prompts to OpenCode Desktop's server via `opencode --attach`.
+/// Dispatches transcribed prompts to OpenCode Desktop's server via `opencode-cli run`.
 struct CLIDispatcher {
 
     /// Dispatch a prompt to OpenCode.
     /// - Parameters:
     ///   - prompt: The assembled prompt string (with context).
-    ///   - server: The Aside opencode server to attach to.
+    ///   - server: The OpenCode Desktop server to dispatch to.
     ///   - sessionID: Optional opencode session ID to continue.
-    ///   - filePaths: Optional file paths to attach with `-f`.
+    ///   - filePaths: Optional file paths to attach with `--file`.
     static func dispatch(
         prompt: String,
         server: DiscoveredServer,
@@ -21,29 +21,28 @@ struct CLIDispatcher {
         // Prefer OpenCode Desktop's bundled CLI, fall back to ~/.opencode/bin/opencode
         let opencodePath = server.cliPath.isEmpty ? "\(home)/.opencode/bin/opencode" : server.cliPath
 
-        // Build command: opencode run --attach <url> [--session id] [--dir dir] [--file=path] -- <prompt>
-        var args = "run --attach \(server.attachTarget)"
+        // Build arguments: run --attach <url> [--session id] [--dir dir] [--file=path] -- <prompt>
+        var args = ["run", "--attach", server.attachTarget]
 
         if let sessionID, !sessionID.isEmpty {
-            args += " --session \(shellQuote(sessionID))"
+            args += ["--session", sessionID]
         }
 
         if let workingDirectory, !workingDirectory.isEmpty {
-            args += " --dir \(shellQuote(workingDirectory))"
+            args += ["--dir", workingDirectory]
         }
 
         for path in filePaths {
-            args += " --file=\(shellQuote(path))"
+            args.append("--file=\(path)")
         }
 
-        args += " -- \(shellQuote(prompt))"
+        args += ["--", prompt]
 
-        let cmd = "\(shellQuote(opencodePath)) \(args)"
-        NSLog("[Dispatch] %@", String(cmd.prefix(300)))
+        NSLog("[Dispatch] %@ %@", opencodePath, args.joined(separator: " "))
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", cmd]
+        process.executableURL = URL(fileURLWithPath: opencodePath)
+        process.arguments = args
 
         if let workingDirectory, !workingDirectory.isEmpty {
             let expandedDirectory = (workingDirectory as NSString).expandingTildeInPath
@@ -88,10 +87,5 @@ struct CLIDispatcher {
         } catch {
             NSLog("[Dispatch] Failed to spawn opencode: %@", error.localizedDescription)
         }
-    }
-
-    /// Single-quote a string for safe shell interpolation.
-    private static func shellQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
