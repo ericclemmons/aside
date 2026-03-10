@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
   release:
@@ -29,20 +28,21 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Gather context for version bump
+      - name: Gather context and determine version
         if: steps.check.outputs.skip == 'false'
-        id: context
+        id: bump
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           CURRENT_VERSION=$(grep -A1 CFBundleShortVersionString Aside/Sources/Aside/Info.plist | grep string | sed 's/.*<string>\(.*\)<\/string>/\1/')
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 
           if [ -z "$LAST_TAG" ]; then
-            COMMITS=$(git log --oneline --no-merges)
+            COMMITS=$(git log --oneline --no-merges | head -50)
           else
-            COMMITS=$(git log "${LAST_TAG}..HEAD" --oneline --no-merges)
+            COMMITS=$(git log "${LAST_TAG}..HEAD" --oneline --no-merges | head -50)
           fi
 
-          # Skip if no new commits
           if [ -z "$COMMITS" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
             exit 0
@@ -50,91 +50,71 @@ jobs:
 
           echo "skip=false" >> $GITHUB_OUTPUT
           echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-          echo "last_tag=$LAST_TAG" >> $GITHUB_OUTPUT
 
-          # Save commits for prompt (truncate to fit in env var)
-          {
-            echo "commits<<COMMITS_EOF"
-            echo "$COMMITS" | head -50
-            echo "COMMITS_EOF"
-          } >> $GITHUB_OUTPUT
+          # Ask Claude for the version bump
+          PROMPT="Current version: ${CURRENT_VERSION}. Commits since ${LAST_TAG:-beginning}:
+          ${COMMITS}
 
-      - name: Determine version with Claude
-        if: steps.check.outputs.skip == 'false' && steps.context.outputs.skip != 'true'
-        id: version
-        uses: anthropics/claude-code-action@v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          prompt: |
-            You are a release manager. Determine the next semantic version bump.
+          Based on these commits, what should the next semantic version be?
+          - MAJOR: breaking changes to user-facing behavior, incompatible API changes
+          - MINOR: new features, new commands, significant enhancements
+          - PATCH: bug fixes, refactoring, documentation, CI changes, minor tweaks
 
-            Current version: ${{ steps.context.outputs.current_version }}
-            Last tag: ${{ steps.context.outputs.last_tag }}
+          Reply with ONLY the version number, e.g. 1.0.1"
 
-            Commits since last release:
-            ```
-            ${{ steps.context.outputs.commits }}
-            ```
+          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+            -H "content-type: application/json" \
+            -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "$(jq -n --arg prompt "$PROMPT" '{
+              model: "claude-haiku-4-5-20251001",
+              max_tokens: 32,
+              messages: [{role: "user", content: $prompt}]
+            }')")
 
-            Rules:
-            - MAJOR: breaking changes to user-facing behavior, incompatible API changes
-            - MINOR: new features, new commands, significant enhancements
-            - PATCH: bug fixes, refactoring, documentation, CI changes, minor tweaks
-
-            Write JUST the version number (e.g. "1.0.1") to /tmp/next_version.txt using the Write tool. Nothing else.
-          claude_args: "--allowedTools Write"
-
-      - name: Apply version bump
-        if: steps.check.outputs.skip == 'false' && steps.context.outputs.skip != 'true'
-        run: |
-          if [ ! -f /tmp/next_version.txt ]; then
-            echo "::warning::Claude did not produce a version, falling back to patch bump"
-            CURRENT="${{ steps.context.outputs.current_version }}"
-            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-            NEXT_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
-          else
-            NEXT_VERSION=$(cat /tmp/next_version.txt | tr -d '[:space:]')
-          fi
+          NEXT_VERSION=$(echo "$RESPONSE" | jq -r '.content[0].text // empty' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
           if [ -z "$NEXT_VERSION" ]; then
-            echo "::error::Empty version"
-            exit 1
+            echo "::warning::Claude response: $RESPONSE"
+            echo "::warning::Falling back to patch bump"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+            NEXT_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
           fi
 
-          # Validate semver format
-          if ! echo "$NEXT_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::Invalid version format: $NEXT_VERSION"
-            exit 1
-          fi
-
-          CURRENT="${{ steps.context.outputs.current_version }}"
-          if [ "$NEXT_VERSION" = "$CURRENT" ]; then
-            echo "Version unchanged ($CURRENT), incrementing patch"
-            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          # Ensure version actually increased
+          if [ "$NEXT_VERSION" = "$CURRENT_VERSION" ]; then
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
             NEXT_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
           fi
 
           # Skip if already tagged
           if git rev-parse "v${NEXT_VERSION}" >/dev/null 2>&1; then
             echo "Version v${NEXT_VERSION} already tagged, skipping"
+            echo "skip=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          echo "Bumping version: $CURRENT → $NEXT_VERSION"
+          echo "next_version=$NEXT_VERSION" >> $GITHUB_OUTPUT
+          echo "Determined next version: $CURRENT_VERSION → $NEXT_VERSION"
 
-          # Update both Info.plist files (source + bundle copy)
-          sed -i "s|<string>${CURRENT}</string>|<string>${NEXT_VERSION}</string>|" Aside/Sources/Aside/Info.plist
-          sed -i "s|<string>${CURRENT}</string>|<string>${NEXT_VERSION}</string>|" Aside/Aside.app/Contents/Info.plist
+      - name: Bump version, commit, and tag
+        if: steps.check.outputs.skip == 'false' && steps.bump.outputs.skip != 'true'
+        env:
+          CURRENT: ${{ steps.bump.outputs.current_version }}
+          NEXT: ${{ steps.bump.outputs.next_version }}
+        run: |
+          echo "Bumping version: $CURRENT → $NEXT"
 
-          # Verify
+          # Update both Info.plist files
+          sed -i "s|<string>${CURRENT}</string>|<string>${NEXT}</string>|" Aside/Sources/Aside/Info.plist
+          sed -i "s|<string>${CURRENT}</string>|<string>${NEXT}</string>|" Aside/Aside.app/Contents/Info.plist
+
           grep -A1 CFBundleShortVersionString Aside/Sources/Aside/Info.plist
 
-          # Commit, tag, push
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Aside/Sources/Aside/Info.plist Aside/Aside.app/Contents/Info.plist
-          git commit -m "v${NEXT_VERSION}"
-          git tag "v${NEXT_VERSION}"
+          git commit -m "v${NEXT}"
+          git tag "v${NEXT}"
           git push origin main
-          git push origin "v${NEXT_VERSION}"
+          git push origin "v${NEXT}"
