@@ -28,31 +28,28 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Determine next version
+      - name: Read version from Info.plist
         if: steps.check.outputs.skip == 'false'
         id: info
         run: |
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          VERSION=$(grep -A1 CFBundleShortVersionString Aside/Aside.app/Contents/Info.plist | grep string | sed 's/.*<string>\(.*\)<\/string>/\1/')
 
-          if [ -z "$LAST_TAG" ]; then
-            NEXT_VERSION="0.0.1"
-            COMMITS=$(git log --oneline --no-merges | grep -v "^$" || true)
-          else
-            VERSION=${LAST_TAG#v}
-            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-            NEXT_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
-            COMMITS=$(git log "${LAST_TAG}..HEAD" --oneline --no-merges | grep -v "^$" || true)
+          if [ -z "$VERSION" ]; then
+            echo "::error::Could not read version from Info.plist"
+            exit 1
           fi
 
-          if [ -z "$COMMITS" ]; then
+          # Skip if this version is already tagged
+          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
             echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Version v${VERSION} already tagged, skipping"
             exit 0
           fi
 
           echo "skip=false" >> $GITHUB_OUTPUT
-          echo "version=$NEXT_VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Bump version, commit, and tag
+      - name: Tag and push
         if: steps.check.outputs.skip == 'false' && steps.info.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.info.outputs.version }}
@@ -61,5 +58,4 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git tag "v${VERSION}"
-          git push origin main
           git push origin "v${VERSION}"
