@@ -18,26 +18,27 @@ struct CLIDispatcher {
         workingDirectory: String? = nil
     ) {
         let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
-        let opencodePath = "\(home)/.opencode/bin/opencode"
+        // Prefer OpenCode Desktop's bundled CLI, fall back to ~/.opencode/bin/opencode
+        let opencodePath = server.cliPath.isEmpty ? "\(home)/.opencode/bin/opencode" : server.cliPath
 
-        // Build shell command: echo '<prompt>' | opencode [global-flags] run [run-flags]
-        // --file is a `run` subcommand flag, so it must come after `run`.
-        var globalFlags = " --attach \(server.attachTarget)"
+        // Build command: opencode run --attach <url> [--session id] [--dir dir] [--file=path] -- <prompt>
+        var args = "run --attach \(server.attachTarget)"
 
         if let sessionID, !sessionID.isEmpty {
-            globalFlags += " --session \(shellQuote(sessionID))"
+            args += " --session \(shellQuote(sessionID))"
         }
 
         if let workingDirectory, !workingDirectory.isEmpty {
-            globalFlags += " --dir \(shellQuote(workingDirectory))"
+            args += " --dir \(shellQuote(workingDirectory))"
         }
 
-        var runFlags = ""
         for path in filePaths {
-            runFlags += " --file=\(shellQuote(path))"
+            args += " --file=\(shellQuote(path))"
         }
 
-        let cmd = "echo \(shellQuote(prompt)) | \(opencodePath)\(globalFlags) run\(runFlags)"
+        args += " -- \(shellQuote(prompt))"
+
+        let cmd = "\(shellQuote(opencodePath)) \(args)"
         NSLog("[Dispatch] %@", String(cmd.prefix(300)))
 
         let process = Process()

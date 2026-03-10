@@ -54,7 +54,10 @@ class OpenCodeConfig: ObservableObject {
             let username = extractEnvVar(from: line, name: "OPENCODE_SERVER_USERNAME") ?? "opencode"
             guard let password = extractEnvVar(from: line, name: "OPENCODE_SERVER_PASSWORD") else { continue }
 
-            return DiscoveredServer(host: host, port: port, username: username, password: password)
+            // Extract CLI path: everything after PID up to "opencode-cli" + that suffix
+            let cliPath = extractCliPath(from: line) ?? ""
+
+            return DiscoveredServer(host: host, port: port, username: username, password: password, cliPath: cliPath)
         }
 
         return nil
@@ -73,6 +76,16 @@ class OpenCodeConfig: ObservableObject {
         let after = line[range.upperBound...].drop(while: { $0.isWhitespace })
         let value = after.prefix(while: { !$0.isWhitespace })
         return value.isEmpty ? nil : String(value)
+    }
+
+    /// Extract the opencode-cli binary path from a ps output line.
+    /// Line format: "  PID /path/to/opencode-cli --flags ..."
+    private nonisolated static func extractCliPath(from line: String) -> String? {
+        // Find the path that ends with "opencode-cli"
+        guard let range = line.range(of: "/", options: []),
+              let endRange = line.range(of: "opencode-cli") else { return nil }
+        let path = String(line[range.lowerBound..<endRange.upperBound])
+        return path.isEmpty ? nil : path
     }
 
     /// Extract an environment variable value from ps eww output.
