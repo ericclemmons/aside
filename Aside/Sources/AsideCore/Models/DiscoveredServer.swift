@@ -5,11 +5,14 @@ public struct DiscoveredServer: Equatable, Sendable {
     public let port: Int
     public let username: String
     public let password: String
-    public init(host: String, port: Int, username: String, password: String) {
+    public let cliPath: String
+
+    public init(host: String, port: Int, username: String, password: String, cliPath: String = "") {
         self.host = host
         self.port = port
         self.username = username
         self.password = password
+        self.cliPath = cliPath
     }
 
     public var attachTarget: String { "http://\(host):\(port)" }

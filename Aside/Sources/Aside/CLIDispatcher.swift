@@ -18,7 +18,8 @@ struct CLIDispatcher {
         workingDirectory: String? = nil
     ) {
         let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
-        let opencodePath = "\(home)/.opencode/bin/opencode"
+        // Prefer OpenCode Desktop's bundled CLI, fall back to opencode on PATH
+        let opencodePath = server.cliPath.isEmpty ? "\(home)/.opencode/bin/opencode" : server.cliPath
 
         // Build arguments: run --attach <url> [--session id] [--dir dir] [--file=path] -- <prompt>
         var args = ["run", "--attach", server.attachTarget]

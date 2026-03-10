@@ -54,7 +54,13 @@ class OpenCodeConfig: ObservableObject {
             let username = extractEnvVar(from: line, name: "OPENCODE_SERVER_USERNAME") ?? "opencode"
             guard let password = extractEnvVar(from: line, name: "OPENCODE_SERVER_PASSWORD") else { continue }
 
-            return DiscoveredServer(host: host, port: port, username: username, password: password)
+            // Extract CLI path from process line (e.g. /Applications/OpenCode.app/Contents/MacOS/opencode-cli)
+            var cliPath = ""
+            if let start = line.range(of: "/"), let end = line.range(of: "opencode-cli") {
+                cliPath = String(line[start.lowerBound..<end.upperBound])
+            }
+
+            return DiscoveredServer(host: host, port: port, username: username, password: password, cliPath: cliPath)
         }
 
         return nil
