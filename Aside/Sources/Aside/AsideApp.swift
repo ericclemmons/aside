@@ -226,16 +226,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let desktopItem = NSMenuItem(title: "OpenCode Desktop", action: #selector(openOpenCodeDesktop), keyEquivalent: "")
         desktopItem.target = self
         let isRunning = store.context.openCodeConnected
-        let statusSuffix = isRunning ? " (Running)" : " (Not Started)"
-        let attrTitle = NSMutableAttributedString()
-        attrTitle.append(NSAttributedString(string: "OpenCode Desktop", attributes: [
-            .font: NSFont.menuFont(ofSize: 13)
-        ]))
-        attrTitle.append(NSAttributedString(string: statusSuffix, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
-            .foregroundColor: isRunning ? NSColor.systemGreen : NSColor.tertiaryLabelColor
-        ]))
-        desktopItem.attributedTitle = attrTitle
         let dotSize = NSSize(width: 8, height: 8)
         let dotImage = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
             let dotRect = NSRect(
