@@ -62,7 +62,7 @@ public struct DispatchDestination: Identifiable, Equatable, Sendable {
             detail: displayDirectory,
             time: session.timeString,
             sessionID: session.id,
-            workingDirectory: nil
+            workingDirectory: session.directory
         )
     }
 }
