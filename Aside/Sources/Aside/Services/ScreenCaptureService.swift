@@ -15,14 +15,18 @@ final class ScreenCaptureService: ScreenCaptureServiceProtocol {
     }
 
     func stopCapture() {
-        process?.interrupt()  // SIGINT lets screencapture restore the cursor
+        let proc = process
         process = nil
         onCapture = nil
-        // screencapture may not restore cursor before exiting — nudge the cursor
-        // to force the window server to recalculate it from the window under it.
-        let pos = NSEvent.mouseLocation
-        if let screen = NSScreen.main {
-            CGWarpMouseCursorPosition(CGPoint(x: pos.x, y: screen.frame.height - pos.y))
+        proc?.interrupt()  // SIGINT lets screencapture restore the cursor
+        // Wait for screencapture to exit, then nudge cursor to reset the crosshair.
+        // A 2-step warp (offset + restore) forces the window server to recalculate.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            let pos = NSEvent.mouseLocation
+            guard let screen = NSScreen.main else { return }
+            let flipped = CGPoint(x: pos.x, y: screen.frame.height - pos.y)
+            CGWarpMouseCursorPosition(CGPoint(x: flipped.x + 1, y: flipped.y))
+            CGWarpMouseCursorPosition(flipped)
         }
     }
 
