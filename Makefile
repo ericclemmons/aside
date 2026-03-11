@@ -17,18 +17,11 @@ release: build-release
 	@mkdir -p "$(ASIDE_APP)/Contents/MacOS" "$(ASIDE_APP)/Contents/Resources"
 	@BIN_PATH=$$(cd "$(ASIDE_DIR)" && swift build -c release --show-bin-path); \
 	cp "$$BIN_PATH/Aside" "$(ASIDE_BUNDLE_BIN)"; \
-	if [ -d "$$BIN_PATH/Aside_Aside.bundle" ]; then \
-		cp -R "$$BIN_PATH/Aside_Aside.bundle" "$(ASIDE_APP)/"; \
-	fi
+	cp "$(ASIDE_DIR)/Sources/Aside/Resources/"* "$(ASIDE_APP)/Contents/Resources/"
 	@strip "$(ASIDE_BUNDLE_BIN)"
 	@cp "$(ASIDE_DIR)/Sources/Aside/Info.plist" "$(ASIDE_APP)/Contents/Info.plist"
 	@cp "$(ASIDE_DIR)/AppIcon.icns" "$(ASIDE_APP)/Contents/Resources/AppIcon.icns"
 	@if [ -n "$(CODESIGN_IDENTITY)" ]; then \
-		find "$(ASIDE_APP)" -name "*.bundle" -o -name "*.framework" -o -name "*.dylib" | while read item; do \
-			codesign --force --options runtime \
-				--sign "$(CODESIGN_IDENTITY)" \
-				"$$item"; \
-		done; \
 		codesign --force --options runtime \
 			--entitlements "$(ASIDE_DIR)/Sources/Aside/Aside.entitlements" \
 			--sign "$(CODESIGN_IDENTITY)" \
@@ -40,6 +33,7 @@ release: build-release
 install: install-cli
 	@BIN_PATH=$$(cd "$(ASIDE_DIR)" && swift build --show-bin-path)/Aside; \
 	cp "$$BIN_PATH" "$(ASIDE_BUNDLE_BIN)"; \
+	cp "$(ASIDE_DIR)/Sources/Aside/Resources/"* "$(ASIDE_APP)/Contents/Resources/"; \
 	codesign --force --deep --sign "Developer ID Application: Eric Clemmons (D3TJHQZD9N)" --identifier com.ericclemmons.aside.app "$(ASIDE_APP)"; \
 	/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f "$(ASIDE_APP)"
 

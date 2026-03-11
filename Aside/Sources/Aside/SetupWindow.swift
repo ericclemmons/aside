@@ -601,7 +601,7 @@ struct LegacySetupView: View {
     private var openCodeCard: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 48)
-            if let url = Bundle.module.url(forResource: "opencode.wordmark", withExtension: "svg"),
+            if let url = Bundle.main.url(forResource: "opencode.wordmark", withExtension: "svg"),
                let img = NSImage(contentsOf: url) {
                 Image(nsImage: img)
                     .resizable()
@@ -881,7 +881,7 @@ struct LegacySetupView: View {
 
     private func loadResourceImage(_ name: String) -> NSImage? {
         if let cached = Self.imageCache[name] { return cached }
-        guard let url = Bundle.module.url(forResource: name, withExtension: "png"),
+        guard let url = Bundle.main.url(forResource: name, withExtension: "png"),
               let raw = NSImage(contentsOf: url) else { return nil }
         let trimmed = trimTransparentBorder(raw)
         Self.imageCache[name] = trimmed

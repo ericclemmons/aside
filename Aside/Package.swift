@@ -21,10 +21,7 @@ let package = Package(
                 .product(name: "FluidAudio", package: "FluidAudio"),
             ],
             path: "Sources/Aside",
-            exclude: ["Aside.entitlements", "Info.plist"],
-            resources: [
-                .process("Resources"),
-            ],
+            exclude: ["Aside.entitlements", "Info.plist", "Resources"],
             linkerSettings: [
             ]
         ),

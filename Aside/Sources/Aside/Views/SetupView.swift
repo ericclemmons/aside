@@ -112,7 +112,7 @@ struct SetupView: View {
     private var openCodeRow: some View {
         HStack(spacing: 12) {
             Group {
-                if let url = Bundle.module.url(forResource: "opencode.logo", withExtension: "svg"),
+                if let url = Bundle.main.url(forResource: "opencode.logo", withExtension: "svg"),
                    let img = NSImage(contentsOf: url) {
                     Image(nsImage: img)
                         .renderingMode(.template)
