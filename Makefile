@@ -24,6 +24,11 @@ release: build-release
 	@cp "$(ASIDE_DIR)/Sources/Aside/Info.plist" "$(ASIDE_APP)/Contents/Info.plist"
 	@cp "$(ASIDE_DIR)/AppIcon.icns" "$(ASIDE_APP)/Contents/Resources/AppIcon.icns"
 	@if [ -n "$(CODESIGN_IDENTITY)" ]; then \
+		find "$(ASIDE_APP)" -name "*.bundle" -o -name "*.framework" -o -name "*.dylib" | while read item; do \
+			codesign --force --options runtime \
+				--sign "$(CODESIGN_IDENTITY)" \
+				"$$item"; \
+		done; \
 		codesign --force --options runtime \
 			--entitlements "$(ASIDE_DIR)/Sources/Aside/Aside.entitlements" \
 			--sign "$(CODESIGN_IDENTITY)" \
