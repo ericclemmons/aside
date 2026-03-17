@@ -97,7 +97,10 @@ class HotkeyManager {
         if type == .keyDown {
             switch keyState {
             case .idle:
-                break  // Option not held, not our event
+                if keyCode == 53 {
+                    // Escape during persistent recording (Option already released)
+                    Task { @MainActor in self.onCancel?() }
+                }
             case .down:
                 if keyCode == 53 {
                     // Escape: cancel recording
