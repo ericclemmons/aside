@@ -13,7 +13,7 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
     private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private let audioEngine = AVAudioEngine()
+    private var audioEngine = AVAudioEngine()
 
     private var finalizeTimeoutTask: Task<Void, Never>?
     /// Incremented each session to discard stale callbacks from cancelled tasks.
@@ -186,8 +186,8 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
     }
 
     private func installTapAndStartEngine() throws {
-        // Reset so inputNode re-acquires the current default input device
-        audioEngine.reset()
+        // Create fresh engine each session to avoid stale aggregate device
+        audioEngine = AVAudioEngine()
         let inputNode = audioEngine.inputNode
         inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in

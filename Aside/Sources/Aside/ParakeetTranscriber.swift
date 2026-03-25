@@ -176,7 +176,7 @@ class ParakeetTranscriber: ObservableObject, TranscriberProtocol {
     var customWords: [String] = []
 
     private let modelManager: ParakeetModelManager
-    private let audioEngine = AVAudioEngine()
+    private var audioEngine = AVAudioEngine()
     private var audioBuffer: [Float] = []
     private var inputSampleRate: Double = 16000
     private var transcriptionTask: Task<Void, Never>?
@@ -204,8 +204,8 @@ class ParakeetTranscriber: ObservableObject, TranscriberProtocol {
 
         NSLog("[Parakeet] Starting recording")
         do {
-            // Reset so inputNode re-acquires the current default input device
-            audioEngine.reset()
+            // Create fresh engine each session to avoid stale aggregate device
+            audioEngine = AVAudioEngine()
             let inputNode = audioEngine.inputNode
             let recordingFormat = inputNode.outputFormat(forBus: 0)
             inputSampleRate = recordingFormat.sampleRate

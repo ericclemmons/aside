@@ -218,7 +218,7 @@ class WhisperTranscriber: ObservableObject, TranscriberProtocol {
     /// Custom words to bias recognition toward (names, abbreviations, etc.)
     var customWords: [String] = []
 
-    private let audioEngine = AVAudioEngine()
+    private var audioEngine = AVAudioEngine()
     private var audioBuffer: [Float] = []
     private let modelManager: WhisperModelManager
 
@@ -240,8 +240,8 @@ class WhisperTranscriber: ObservableObject, TranscriberProtocol {
         audioLevel = 0
 
         do {
-            // Reset so inputNode re-acquires the current default input device
-            audioEngine.reset()
+            // Create fresh engine each session to avoid stale aggregate device
+            audioEngine = AVAudioEngine()
             let inputNode = audioEngine.inputNode
             let recordingFormat = inputNode.outputFormat(forBus: 0)
 
