@@ -208,8 +208,7 @@ final class EffectExecutor {
     // MARK: - Build destination list
 
     private func buildDestinationList() -> [DispatchDestination] {
-        let threeDaysAgo = Date().addingTimeInterval(-3 * 24 * 3600)
-        let sessions = store.context.sessions.filter { $0.directory != "/" && $0.updatedAt > threeDaysAgo }
+        let sessions = store.context.sessions.filter { $0.directory != "/" }
         let recentSessions = Array(sessions.prefix(5))
 
         var destinations: [DispatchDestination] = []

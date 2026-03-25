@@ -61,9 +61,11 @@ class SessionManager: ObservableObject {
 
             var sessions = json.compactMap { obj -> Session? in
                 guard let id = obj["id"] as? String else { return nil }
+                // Skip archived (deleted) sessions — matches OpenCode Desktop behavior
+                let time = obj["time"] as? [String: Any]
+                if time?["archived"] != nil { return nil }
                 let name = (obj["title"] as? String) ?? id
                 // Timestamps are Unix milliseconds, nested under "time"
-                let time = obj["time"] as? [String: Any]
                 let updatedMs = (time?["updated"] as? Double) ?? (time?["created"] as? Double) ?? 0
                 let updatedAt = Date(timeIntervalSince1970: updatedMs / 1000.0)
                 let directory = obj["directory"] as? String
