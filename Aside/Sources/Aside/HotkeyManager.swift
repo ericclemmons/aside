@@ -55,10 +55,10 @@ class HotkeyManager {
             options: .defaultTap,
             eventsOfInterest: eventMask,
             callback: { proxy, type, event, refcon -> Unmanaged<CGEvent>? in
-                guard let refcon else { return Unmanaged.passRetained(event) }
+                guard let refcon else { return Unmanaged.passUnretained(event) }
                 let manager = Unmanaged<HotkeyManager>.fromOpaque(refcon).takeUnretainedValue()
-                manager.handleEvent(type: type, event: event)
-                return Unmanaged.passRetained(event)
+                let suppress = manager.handleEvent(type: type, event: event)
+                return suppress ? nil : Unmanaged.passUnretained(event)
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
@@ -114,14 +114,16 @@ class HotkeyManager {
         }
     }
 
-    private func handleEvent(type: CGEventType, event: CGEvent) {
+    /// Returns `true` if the event should be suppressed (not passed to the system).
+    @discardableResult
+    private func handleEvent(type: CGEventType, event: CGEvent) -> Bool {
         // macOS disables event taps if callback is slow — re-enable immediately
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             NSLog("[HotkeyManager] Event tap was disabled, re-enabling")
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
-            return
+            return false
         }
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
@@ -146,10 +148,10 @@ class HotkeyManager {
             case .chord:
                 break  // Already suppressed
             }
-            return
+            return false
         }
 
-        guard type == .flagsChanged, keyCode == rightOptionKeyCode else { return }
+        guard type == .flagsChanged, keyCode == rightOptionKeyCode else { return false }
 
         let optionIsDown = event.flags.contains(.maskAlternate)
         NSLog("[HotkeyManager] Right Option %@ (state: %@)", optionIsDown ? "down" : "up", "\(keyState)")
@@ -158,17 +160,20 @@ class HotkeyManager {
         case .idle where optionIsDown:
             keyState = .down
             Task { @MainActor in self.onKeyDown?() }
+            return true  // Suppress Right Option down
 
         case .down where !optionIsDown:
             keyState = .idle
             Task { @MainActor in self.onKeyUp?() }
+            return true  // Suppress Right Option up
 
         case .chord where !optionIsDown:
             // Suppressed press released — back to idle, no callback
             keyState = .idle
+            return true  // Suppress Right Option up after chord
 
         default:
-            break
+            return false
         }
     }
 }

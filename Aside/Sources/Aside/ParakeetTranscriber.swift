@@ -253,11 +253,28 @@ class ParakeetTranscriber: ObservableObject, TranscriberProtocol {
         let sampleRate = inputSampleRate
         audioBuffer = []
 
-        NSLog("[Parakeet] Stopped recording, captured %d samples at %.0f Hz (%.1f sec)",
-              capturedAudio.count, sampleRate, Double(capturedAudio.count) / sampleRate)
+        // Compute overall RMS to distinguish silence from actual speech
+        var overallRms: Float = 0
+        if !capturedAudio.isEmpty {
+            var sum: Float = 0
+            for s in capturedAudio { sum += s * s }
+            overallRms = sqrt(sum / Float(capturedAudio.count))
+        }
+        NSLog("[Parakeet] Stopped recording, captured %d samples at %.0f Hz (%.1f sec) rms=%.6f",
+              capturedAudio.count, sampleRate, Double(capturedAudio.count) / sampleRate, overallRms)
 
         guard !capturedAudio.isEmpty else {
             NSLog("[Parakeet] No audio captured, finishing with empty text")
+            onTranscriptionFinished?("")
+            return
+        }
+
+        // Silence gate: skip transcription if audio is too quiet.
+        // Whisper-family models hallucinate on silence (e.g. "c", "Yeah.").
+        // Real speech RMS ≈ 0.005–0.05, silence RMS ≈ 0.001.
+        let silenceThreshold: Float = 0.003
+        guard overallRms >= silenceThreshold else {
+            NSLog("[Parakeet] Audio below silence threshold (rms=%.6f < %.3f), finishing with empty text", overallRms, silenceThreshold)
             onTranscriptionFinished?("")
             return
         }

@@ -296,6 +296,18 @@ class WhisperTranscriber: ObservableObject, TranscriberProtocol {
             return
         }
 
+        // Silence gate: skip transcription if audio is too quiet.
+        // Whisper-family models hallucinate on silence (e.g. "c", "Yeah.").
+        var sum: Float = 0
+        for s in capturedAudio { sum += s * s }
+        let rms = sqrt(sum / Float(capturedAudio.count))
+        let silenceThreshold: Float = 0.003
+        guard rms >= silenceThreshold else {
+            NSLog("[Whisper] Audio below silence threshold (rms=%.6f < %.3f), finishing with empty text", rms, silenceThreshold)
+            onTranscriptionFinished?("")
+            return
+        }
+
         Task {
             await transcribeAudio(capturedAudio)
         }
