@@ -19,6 +19,7 @@ class HotkeyManager {
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private var healthCheckTimer: Timer?
 
     private enum KeyState {
         case idle           // Right Option is not held
@@ -72,14 +73,45 @@ class HotkeyManager {
         CGEvent.tapEnable(tap: tap, enable: true)
         isAccessibilityGranted = true
         NSLog("[HotkeyManager] Event tap created successfully")
+        startHealthCheck()
         return true
     }
 
     func stop() {
+        healthCheckTimer?.invalidate()
+        healthCheckTimer = nil
         if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: false) }
         if let src = runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes) }
         eventTap = nil
         runLoopSource = nil
+    }
+
+    /// Periodically verifies the event tap is still alive. macOS can silently
+    /// invalidate the mach port (e.g. after sleep/wake or prolonged inactivity),
+    /// and the tapDisabledByTimeout callback won't fire if the port itself is dead.
+    private func startHealthCheck() {
+        healthCheckTimer?.invalidate()
+        healthCheckTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.checkAndRevive()
+            }
+        }
+    }
+
+    private func checkAndRevive() {
+        guard let tap = eventTap else { return }
+
+        if !CFMachPortIsValid(tap) {
+            NSLog("[HotkeyManager] Mach port invalid — recreating event tap")
+            stop()
+            start()
+            return
+        }
+
+        if !CGEvent.tapIsEnabled(tap: tap) {
+            NSLog("[HotkeyManager] Event tap disabled (health check) — re-enabling")
+            CGEvent.tapEnable(tap: tap, enable: true)
+        }
     }
 
     private func handleEvent(type: CGEventType, event: CGEvent) {
@@ -120,6 +152,7 @@ class HotkeyManager {
         guard type == .flagsChanged, keyCode == rightOptionKeyCode else { return }
 
         let optionIsDown = event.flags.contains(.maskAlternate)
+        NSLog("[HotkeyManager] Right Option %@ (state: %@)", optionIsDown ? "down" : "up", "\(keyState)")
 
         switch keyState {
         case .idle where optionIsDown:
