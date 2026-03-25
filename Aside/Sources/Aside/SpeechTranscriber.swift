@@ -186,6 +186,8 @@ class SpeechTranscriber: ObservableObject, TranscriberProtocol {
     }
 
     private func installTapAndStartEngine() throws {
+        // Reset so inputNode re-acquires the current default input device
+        audioEngine.reset()
         let inputNode = audioEngine.inputNode
         inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in

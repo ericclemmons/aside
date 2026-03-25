@@ -240,6 +240,8 @@ class WhisperTranscriber: ObservableObject, TranscriberProtocol {
         audioLevel = 0
 
         do {
+            // Reset so inputNode re-acquires the current default input device
+            audioEngine.reset()
             let inputNode = audioEngine.inputNode
             let recordingFormat = inputNode.outputFormat(forBus: 0)
 
