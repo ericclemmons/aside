@@ -306,6 +306,7 @@ private struct DispatchPickerView: View {
                 }
             }
             .padding(.horizontal, 6)
+            .padding(.top, 6)
 
             // Hints
             HStack(spacing: 12) {
