@@ -16,6 +16,7 @@ struct CLIDispatcher {
         sessionID: String? = nil,
         filePaths: [String] = [],
         workingDirectory: String? = nil,
+        onSuccess: (() -> Void)? = nil,
         onFailure: ((String) -> Void)? = nil
     ) {
         let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
@@ -122,6 +123,9 @@ struct CLIDispatcher {
                     }
                 } else {
                     NSLog("[Dispatch] Process exited successfully")
+                    DispatchQueue.main.async {
+                        onSuccess?()
+                    }
                 }
             }
         } catch {

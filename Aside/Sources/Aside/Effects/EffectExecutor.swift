@@ -145,9 +145,16 @@ final class EffectExecutor {
             }
 
         case .dispatch(let prompt, let server, let sessionID, let files, let workDir):
-            dispatchService?.dispatch(prompt: prompt, server: server, sessionID: sessionID, filePaths: files, workingDirectory: workDir) { [weak self] reason in
+            dispatchService?.dispatch(prompt: prompt, server: server, sessionID: sessionID, filePaths: files, workingDirectory: workDir, onSuccess: {
+                // Clear the safety-net clipboard copy on successful dispatch
+                let pb = NSPasteboard.general
+                if pb.string(forType: .string) == prompt {
+                    pb.clearContents()
+                    NSLog("[EffectExecutor] Cleared prompt from clipboard after successful dispatch")
+                }
+            }, onFailure: { [weak self] reason in
                 self?.showDispatchFailureAlert(prompt: prompt, reason: reason)
-            }
+            })
 
         case .startFinishingTimeout:
             finishingTimeoutTask?.cancel()
