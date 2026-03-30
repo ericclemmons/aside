@@ -29,10 +29,15 @@ case startPermissionPolling
     // Dispatch
     case dispatch(prompt: String, server: DiscoveredServer, sessionID: String?, files: [String], workingDir: String?)
     case buildDestinations
+    case startFinishingTimeout
 
     // Overlay
     case showOverlay(OverlayEffect)
     case hideOverlay
+
+    // Safety net
+    case copyToClipboard(String)
+    case showDispatchFailure(prompt: String, reason: String)
 
     // Cleanup
     case deleteFiles([String])

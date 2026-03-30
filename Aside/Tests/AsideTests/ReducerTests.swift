@@ -211,6 +211,82 @@ final class ReducerTests: XCTestCase {
         XCTAssertEqual(ctx.currentProjectDirectory, "/home")
     }
 
+    // MARK: - Persistent: transcription auto-finish (accumulation)
+
+    func testPersistentTranscriptionFinishedAccumulates() {
+        var ctx = makeContext()
+        // Recognizer auto-finishes with text during persistent recording
+        let (phase, effects) = send(.transcriptionFinished(text: "first segment"), phase: .persistent, context: &ctx)
+        XCTAssertEqual(phase, .persistent)
+        XCTAssertEqual(ctx.accumulatedTranscription, "first segment")
+        XCTAssertEqual(ctx.transcribedText, "first segment")
+        XCTAssertTrue(effects.contains(.startRecording(.dictation)))
+    }
+
+    func testPersistentTranscriptionFinishedAccumulatesMultiple() {
+        var ctx = makeContext()
+        ctx.accumulatedTranscription = "first segment"
+        let (phase, _) = send(.transcriptionFinished(text: "second segment"), phase: .persistent, context: &ctx)
+        XCTAssertEqual(phase, .persistent)
+        XCTAssertEqual(ctx.accumulatedTranscription, "first segment second segment")
+    }
+
+    func testPersistentTranscriptionFinishedEmptyNoAccumulate() {
+        var ctx = makeContext()
+        ctx.accumulatedTranscription = "existing"
+        let (phase, _) = send(.transcriptionFinished(text: ""), phase: .persistent, context: &ctx)
+        XCTAssertEqual(phase, .persistent)
+        XCTAssertEqual(ctx.accumulatedTranscription, "existing")
+    }
+
+    func testFinishingDispatchCombinesAccumulated() {
+        var ctx = makeContext(server: testServer)
+        ctx.accumulatedTranscription = "first segment"
+        let (phase, _) = send(.transcriptionFinished(text: "final segment"), phase: .finishing(.dispatch), context: &ctx)
+        XCTAssertEqual(phase, .dispatching)
+        XCTAssertTrue(ctx.currentPrompt.contains("first segment final segment"))
+        XCTAssertEqual(ctx.accumulatedTranscription, "")
+    }
+
+    func testFinishingDispatchAccumulatedOnlyWhenFinalEmpty() {
+        var ctx = makeContext(server: testServer)
+        ctx.accumulatedTranscription = "only segment"
+        let (phase, _) = send(.transcriptionFinished(text: ""), phase: .finishing(.dispatch), context: &ctx)
+        XCTAssertEqual(phase, .dispatching)
+        XCTAssertTrue(ctx.currentPrompt.contains("only segment"))
+    }
+
+    func testFinishingTimeoutWithText() {
+        var ctx = makeContext()
+        ctx.accumulatedTranscription = "accumulated"
+        ctx.transcribedText = "partial"
+        ctx.screenshotPaths = ["/tmp/a.png"]
+        let (phase, effects) = send(.finishingTimeout, phase: .finishing(.dispatch), context: &ctx)
+        XCTAssertEqual(phase, .idle)
+        XCTAssertTrue(effects.contains(.cancelRecording))
+        XCTAssertTrue(effects.contains(.hideOverlay))
+        let failureEffect = effects.first { if case .showDispatchFailure = $0 { return true } else { return false } }
+        XCTAssertNotNil(failureEffect)
+    }
+
+    func testDispatchPickedNoServerShowsFailure() {
+        var ctx = makeContext()
+        ctx.currentPrompt = "my prompt"
+        let dest = DispatchDestination.newOpenCodeWorkspace(displayDirectory: "~/proj", workingDirectory: "/Users/me/proj")
+        let (phase, effects) = send(.destinationPicked(dest, editedPrompt: ""), phase: .dispatching, context: &ctx)
+        XCTAssertEqual(phase, .idle)
+        let failureEffect = effects.first { if case .showDispatchFailure = $0 { return true } else { return false } }
+        XCTAssertNotNil(failureEffect)
+    }
+
+    func testDispatchPickedCopiesPrompt() {
+        var ctx = makeContext(server: testServer)
+        ctx.currentPrompt = "my prompt"
+        let dest = DispatchDestination.newOpenCodeWorkspace(displayDirectory: "~/proj", workingDirectory: "/Users/me/proj")
+        let (_, effects) = send(.destinationPicked(dest, editedPrompt: ""), phase: .dispatching, context: &ctx)
+        XCTAssertTrue(effects.contains(.copyToClipboard("my prompt")))
+    }
+
     // MARK: - Finishing (Hold-to-Type)
 
     // MARK: - Transcribing → Hold-to-Type

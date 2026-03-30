@@ -102,10 +102,10 @@ struct WaveformBanner: View {
                     else       { path.addLine(to: CGPoint(x: x, y: y)) }
                 }
                 // Line brightness scales with volume (dim at silence → full white at max)
-                let volumeBrightness = liveMode ? (0.15 + 0.85 * lineLevel) : 1.0
-                let haloOpacity = (compact ? line.opacity * 0.35 : line.opacity * 0.25) * volumeBrightness
-                let midOpacity  = (compact ? line.opacity * 0.6  : line.opacity * 0.45) * volumeBrightness
-                let coreOpacity = (compact ? line.opacity * 0.85 : line.opacity * 0.6)  * volumeBrightness
+                let volumeBrightness = liveMode ? (0.45 + 0.55 * lineLevel) : 1.0
+                let haloOpacity = line.opacity * 0.25 * volumeBrightness
+                let midOpacity  = line.opacity * 0.45 * volumeBrightness
+                let coreOpacity = line.opacity * 0.6  * volumeBrightness
                 var halo = context; halo.opacity = haloOpacity
                 halo.addFilter(.blur(radius: haloBlur))
                 halo.stroke(path, with: .color(.white), style: StrokeStyle(lineWidth: haloWidth, lineCap: .round))

@@ -3,13 +3,14 @@ import AsideCore
 
 /// Wraps CLIDispatcher for dispatching prompts.
 final class DispatchService {
-    func dispatch(prompt: String, server: DiscoveredServer, sessionID: String?, filePaths: [String], workingDirectory: String?) {
+    func dispatch(prompt: String, server: DiscoveredServer, sessionID: String?, filePaths: [String], workingDirectory: String?, onFailure: ((String) -> Void)? = nil) {
         CLIDispatcher.dispatch(
             prompt: prompt,
             server: server,
             sessionID: sessionID,
             filePaths: filePaths,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            onFailure: onFailure
         )
     }
 }

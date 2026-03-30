@@ -56,6 +56,7 @@ public enum AppEvent: Equatable, Sendable {
     // Dispatch
     case destinationPicked(DispatchDestination, editedPrompt: String)
     case dispatchCancelled
+    case finishingTimeout
 
     // Screen capture
     case screenCaptureReady
@@ -79,6 +80,8 @@ public struct AppContext: Equatable, Sendable {
     public var transcribedText: String
     public var audioLevel: Float
     public var isEnhancing: Bool
+    /// Text accumulated from recognizer auto-finishes during persistent recording (e.g. pauses, 60s limit)
+    public var accumulatedTranscription: String
 
 
     // Capture
@@ -108,6 +111,7 @@ public struct AppContext: Equatable, Sendable {
         transcribedText: String = "",
         audioLevel: Float = 0,
         isEnhancing: Bool = false,
+        accumulatedTranscription: String = "",
         capturedContext: ActiveContext? = nil,
         screenshotPaths: [String] = [],
         currentPrompt: String = "",
@@ -125,6 +129,7 @@ public struct AppContext: Equatable, Sendable {
         self.transcribedText = transcribedText
         self.audioLevel = audioLevel
         self.isEnhancing = isEnhancing
+        self.accumulatedTranscription = accumulatedTranscription
         self.capturedContext = capturedContext
         self.screenshotPaths = screenshotPaths
         self.currentPrompt = currentPrompt

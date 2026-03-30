@@ -15,7 +15,8 @@ struct CLIDispatcher {
         server: DiscoveredServer,
         sessionID: String? = nil,
         filePaths: [String] = [],
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        onFailure: ((String) -> Void)? = nil
     ) {
         let home = ProcessInfo.processInfo.environment["HOME"] ?? "/Users/\(NSUserName())"
         // Prefer OpenCode Desktop's bundled CLI, fall back to opencode on PATH
@@ -94,7 +95,8 @@ struct CLIDispatcher {
             try process.run()
             NSLog("[Dispatch] opencode spawned PID: %d", process.processIdentifier)
 
-            // Log stderr asynchronously
+            // Log stderr and detect failures asynchronously
+            var stderrOutput = ""
             errPipe.fileHandleForReading.readabilityHandler = { handle in
                 let data = handle.availableData
                 if data.isEmpty {
@@ -103,10 +105,28 @@ struct CLIDispatcher {
                 }
                 if let str = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !str.isEmpty {
                     NSLog("[Dispatch] stderr: %@", str)
+                    stderrOutput += str + "\n"
+                }
+            }
+
+            // Monitor process exit to report failures
+            process.terminationHandler = { proc in
+                let status = proc.terminationStatus
+                if status != 0 {
+                    let reason = stderrOutput.isEmpty
+                        ? "opencode-cli exited with code \(status)"
+                        : stderrOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+                    NSLog("[Dispatch] Process exited with status %d: %@", status, reason)
+                    DispatchQueue.main.async {
+                        onFailure?(reason)
+                    }
+                } else {
+                    NSLog("[Dispatch] Process exited successfully")
                 }
             }
         } catch {
             NSLog("[Dispatch] Failed to spawn opencode: %@", error.localizedDescription)
+            onFailure?("Failed to spawn opencode: \(error.localizedDescription)")
         }
     }
 }

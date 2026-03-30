@@ -8,6 +8,22 @@
 		<data>
 		4g+7z76vMyxJ3GtChWi09PY/ovM=
 		</data>
+		<key>Resources/opencode-servers.png</key>
+		<data>
+		kjSOJa69Qez4Y2HuO3otFY4tUbI=
+		</data>
+		<key>Resources/opencode-status.png</key>
+		<data>
+		kKkLZT57EgfVy3/yrStSXMULdnY=
+		</data>
+		<key>Resources/opencode.logo.svg</key>
+		<data>
+		e98hmvRgHQZ/q4whIcryhq17h2o=
+		</data>
+		<key>Resources/opencode.wordmark.svg</key>
+		<data>
+		OndUovXHqOv1V1xSADGHeA+xNL4=
+		</data>
 	</dict>
 	<key>files2</key>
 	<dict>
@@ -16,6 +32,34 @@
 			<key>hash2</key>
 			<data>
 			xa7P5aHPJWcY4jPTzxtW0/gs98Fx0HMtGZ1ohCFClNg=
+			</data>
+		</dict>
+		<key>Resources/opencode-servers.png</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			uaMyDy2NOy/nD4cRCbDwAMcNIPFipIuW/T4EW+00FFY=
+			</data>
+		</dict>
+		<key>Resources/opencode-status.png</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			AfgKgOgopHSjKESD0glPhw9FwhtoVgfGEjDIQN5cFec=
+			</data>
+		</dict>
+		<key>Resources/opencode.logo.svg</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			zGPfPY72riGE2soZs55+C3bzfEtfM9cjxwebcdQpAi4=
+			</data>
+		</dict>
+		<key>Resources/opencode.wordmark.svg</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			oimlMk0stUn67rtCtuWQlnJl5LmR7zELOsXWA7C07Bc=
 			</data>
 		</dict>
 	</dict>

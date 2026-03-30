@@ -63,6 +63,7 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
         context.transcribedText = ""
         context.audioLevel = 0
         context.isEnhancing = false
+        context.accumulatedTranscription = ""
         context.capturedContext = nil
         context.screenshotPaths = []
 
@@ -126,12 +127,13 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
 
     case (.persistent, .keyDown):
         // Stop recording and wait for transcriptionFinished (handles both streaming and batch engines)
-        return (.finishing(.dispatch), [.stopRecording, .stopScreenCapture])
+        return (.finishing(.dispatch), [.stopRecording, .stopScreenCapture, .startFinishingTimeout])
 
     case (.persistent, .keyCancel):
         let paths = context.screenshotPaths
         context.transcribedText = ""
         context.audioLevel = 0
+        context.accumulatedTranscription = ""
         context.screenshotPaths = []
         return (.idle, [.cancelRecording, .stopScreenCapture, .hideOverlay, .deleteFiles(paths)])
 
@@ -148,6 +150,14 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
         context.screenshotPaths.append(path)
         return (.persistent, [])
 
+    case (.persistent, .transcriptionFinished(let text)):
+        // Recognizer auto-finished (pause, 60s limit, etc.) — accumulate and restart
+        if !text.isEmpty {
+            context.accumulatedTranscription += (context.accumulatedTranscription.isEmpty ? "" : " ") + text
+            context.transcribedText = context.accumulatedTranscription
+        }
+        return (.persistent, [.startRecording(context.transcriptionEngine)])
+
     case (.persistent, .sessionsRefreshed(let sessions, let projectDir)):
         context.sessions = sessions
         context.currentProjectDirectory = projectDir
@@ -162,7 +172,12 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
         return (.idle, [.typeText(text), .hideOverlay])
 
     case (.finishing(.dispatch), .transcriptionFinished(let text)):
-        guard !text.isEmpty else {
+        // Combine any accumulated text from recognizer auto-finishes with final segment
+        let fullText = [context.accumulatedTranscription, text]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        context.accumulatedTranscription = ""
+        guard !fullText.isEmpty else {
             let paths = context.screenshotPaths
             context.transcribedText = ""
             context.screenshotPaths = []
@@ -170,11 +185,30 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
         }
         if context.enhancementMode == .appleIntelligence {
             context.isEnhancing = true
-            return (.finishing(.dispatch), [.enhanceText(text)])
+            return (.finishing(.dispatch), [.enhanceText(fullText)])
         }
-        let prompt = PromptBuilder.buildPrompt(transcription: text, context: context.capturedContext)
+        let prompt = PromptBuilder.buildPrompt(transcription: fullText, context: context.capturedContext)
         context.currentPrompt = prompt
-        return (.dispatching, [.buildDestinations, .showOverlay(.picker), .addHistory(text: text, engine: context.transcriptionEngine, enhanced: false)])
+        return (.dispatching, [.buildDestinations, .showOverlay(.picker), .addHistory(text: fullText, engine: context.transcriptionEngine, enhanced: false)])
+
+    case (.finishing(.dispatch), .finishingTimeout):
+        // Transcription never arrived — save whatever text we have and alert
+        let text = [context.accumulatedTranscription, context.transcribedText]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        context.accumulatedTranscription = ""
+        context.transcribedText = ""
+        let paths = context.screenshotPaths
+        context.screenshotPaths = []
+        if text.isEmpty {
+            return (.idle, [.cancelRecording, .hideOverlay, .deleteFiles(paths)])
+        }
+        return (.idle, [
+            .cancelRecording,
+            .hideOverlay,
+            .showDispatchFailure(prompt: text, reason: "Transcription timed out after 30 seconds"),
+            .deleteFiles(paths)
+        ])
 
     case (.finishing(.dispatch), .enhancementFinished(let text)):
         context.isEnhancing = false
@@ -186,7 +220,8 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
 
     case (.dispatching, .destinationPicked(let dest, let editedPrompt)):
         guard let server = context.server else {
-            return (.idle, [.hideOverlay])
+            let prompt = editedPrompt.isEmpty ? context.currentPrompt : editedPrompt
+            return (.idle, [.showDispatchFailure(prompt: prompt, reason: "No OpenCode server connected"), .hideOverlay])
         }
         let prompt = editedPrompt.isEmpty ? context.currentPrompt : editedPrompt
         let paths = context.screenshotPaths
@@ -196,6 +231,7 @@ public func reduce(phase: AppPhase, context: inout AppContext, event: AppEvent) 
         context.destinations = []
         context.capturedContext = nil
         return (.idle, [
+            .copyToClipboard(prompt),
             .dispatch(prompt: prompt, server: server, sessionID: dest.sessionID, files: paths, workingDir: dest.workingDirectory),
             .hideOverlay
         ])

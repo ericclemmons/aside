@@ -28,6 +28,8 @@ final class EffectExecutor {
     private var _enhancer: Any?
     var customWordsManager: CustomWordsManager?
 
+    private var finishingTimeoutTask: Task<Void, Never>?
+
     init(store: AppStore) {
         self.store = store
         store.effectHandler = { [weak self] effect, callback in
@@ -143,7 +145,21 @@ final class EffectExecutor {
             }
 
         case .dispatch(let prompt, let server, let sessionID, let files, let workDir):
-            dispatchService?.dispatch(prompt: prompt, server: server, sessionID: sessionID, filePaths: files, workingDirectory: workDir)
+            dispatchService?.dispatch(prompt: prompt, server: server, sessionID: sessionID, filePaths: files, workingDirectory: workDir) { [weak self] reason in
+                self?.showDispatchFailureAlert(prompt: prompt, reason: reason)
+            }
+
+        case .startFinishingTimeout:
+            finishingTimeoutTask?.cancel()
+            finishingTimeoutTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard let self else { return }
+                    self.finishingTimeoutTask = nil
+                    callback(.finishingTimeout)
+                }
+            }
 
         case .buildDestinations:
             let destinations = buildDestinationList()
@@ -154,6 +170,8 @@ final class EffectExecutor {
             }
 
         case .showOverlay(let overlayEffect):
+            finishingTimeoutTask?.cancel()
+            finishingTimeoutTask = nil
             switch overlayEffect {
             case .waveform:
                 overlayState?.mode = .waveform
@@ -162,7 +180,20 @@ final class EffectExecutor {
             }
 
         case .hideOverlay:
+            finishingTimeoutTask?.cancel()
+            finishingTimeoutTask = nil
             overlayState?.reset()
+
+        case .copyToClipboard(let text):
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            NSLog("[EffectExecutor] Copied prompt to clipboard (%d chars)", text.count)
+
+        case .showDispatchFailure(let prompt, let reason):
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(prompt, forType: .string)
+            NSLog("[EffectExecutor] Dispatch failure: %@", reason)
+            showDispatchFailureAlert(prompt: prompt, reason: reason)
 
         case .deleteFiles(let paths):
             for path in paths {
@@ -202,6 +233,31 @@ final class EffectExecutor {
             let returnUp = CGEvent(keyboardEventSource: source, virtualKey: 0x24, keyDown: false)
             returnDown?.post(tap: .cgAnnotatedSessionEventTap)
             returnUp?.post(tap: .cgAnnotatedSessionEventTap)
+        }
+    }
+
+    // MARK: - Dispatch failure alert
+
+    private func showDispatchFailureAlert(prompt: String, reason: String) {
+        let truncated = prompt.count > 200 ? String(prompt.prefix(200)) + "..." : prompt
+        let issueTitle = "Dispatch failure: \(reason)"
+        let issueBody = "## What happened\nDispatch failed after selecting a session.\n\n## Reason\n\(reason)\n\n## Prompt (truncated)\n```\n\(truncated)\n```"
+        let encodedTitle = issueTitle.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let encodedBody = issueBody.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let issueURL = "https://github.com/ericclemmons/aside/issues/new?title=\(encodedTitle)&body=\(encodedBody)"
+
+        let alert = NSAlert()
+        alert.messageText = "Dispatch Failed"
+        alert.informativeText = "\(reason)\n\nYour prompt has been copied to the clipboard."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Open GitHub Issue")
+        alert.addButton(withTitle: "OK")
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            if let url = URL(string: issueURL) {
+                NSWorkspace.shared.open(url)
+            }
         }
     }
 
