@@ -1,5 +1,6 @@
 import { Form, ActionPanel, Action, Detail, showHUD, showToast, Toast, Icon, popToRoot } from "@raycast/api";
-import { useState, useEffect, useRef } from "react";
+import { useForm, usePromise } from "@raycast/utils";
+import { useRef } from "react";
 import {
   discoverServer,
   fetchSessions,
@@ -7,52 +8,88 @@ import {
   dispatch as dispatchToOpenCode,
   abbreviateHome,
   timeAgo,
-  type DiscoveredServer,
-  type Session,
 } from "./opencode";
 import { gatherContext, buildPrompt, type ContextItem } from "./context";
 import { learnFromEdit } from "./vocabulary";
 
 const NEW_SESSION = "__new__";
 
+interface FormValues {
+  prompt: string;
+  session: string;
+  [key: string]: unknown; // dynamic context checkbox IDs
+}
+
 export default function DispatchCommand() {
-  const [server, setServer] = useState<DiscoveredServer | null>(null);
-  const [serverError, setServerError] = useState(false);
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [projectDir, setProjectDir] = useState<string | null>(null);
-  const [contextItems, setContextItems] = useState<ContextItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [promptText, setPromptText] = useState("");
   const initialPromptRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    async function init() {
-      const found = discoverServer();
-      if (!found) {
-        setServerError(true);
-        setIsLoading(false);
+  const { data, isLoading, error } = usePromise(async () => {
+    const server = discoverServer();
+    if (!server) throw new Error("not_found");
+
+    const [sessions, projectDir, contextItems] = await Promise.all([
+      fetchSessions(server),
+      fetchProjectDirectory(server),
+      gatherContext(),
+    ]);
+
+    return { server, sessions, projectDir, contextItems };
+  });
+
+  const { handleSubmit, itemProps, setValue } = useForm<FormValues>({
+    async onSubmit(values) {
+      if (!data) return;
+
+      const prompt = values.prompt?.trim();
+      if (!prompt) {
+        await showToast({ style: Toast.Style.Failure, title: "Prompt is empty" });
         return;
       }
-      setServer(found);
 
-      const [s, dir, ctx] = await Promise.all([
-        fetchSessions(found),
-        fetchProjectDirectory(found),
-        gatherContext(),
-      ]);
+      const sessionId = values.session === NEW_SESSION ? undefined : values.session;
 
-      setSessions(s);
-      setProjectDir(dir);
-      setContextItems(ctx);
-      setIsLoading(false);
-    }
-    init();
-  }, []);
+      const activeContext = (data.contextItems ?? []).filter(
+        (item, i) => values[contextKey(item, i)] === true,
+      );
+      const fullPrompt = buildPrompt(prompt, activeContext);
+      const filePaths = activeContext.filter((c) => c.type === "screenshot").map((c) => c.value);
 
-  if (serverError) {
+      const toast = await showToast({ style: Toast.Style.Animated, title: "Dispatching..." });
+
+      const result = await dispatchToOpenCode({
+        prompt: fullPrompt,
+        server: data.server,
+        sessionId,
+        filePaths,
+        workingDirectory: data.projectDir || undefined,
+      });
+
+      if (result.success) {
+        toast.hide();
+
+        const original = initialPromptRef.current;
+        if (original && original !== prompt) {
+          learnFromEdit(original, prompt, data.server).catch(() => {});
+        }
+
+        await showHUD("Dispatched to OpenCode");
+        await popToRoot();
+      } else {
+        toast.style = Toast.Style.Failure;
+        toast.title = "Dispatch Failed";
+        toast.message = result.error;
+      }
+    },
+  });
+
+  if (error) {
     return (
       <Detail
-        markdown="## OpenCode Desktop Not Found\n\nAside requires OpenCode Desktop to be running.\n\nStart OpenCode Desktop and try again."
+        markdown={
+          "## OpenCode Desktop Not Found\n\n" +
+          "Aside requires OpenCode Desktop to be running.\n\n" +
+          "Start OpenCode Desktop and try again."
+        }
         actions={
           <ActionPanel>
             <Action.OpenInBrowser title="Get OpenCode Desktop" url="https://opencode.ai" />
@@ -62,52 +99,9 @@ export default function DispatchCommand() {
     );
   }
 
-  function contextKey(item: ContextItem, index: number): string {
-    return `ctx-${item.type}-${index}`;
-  }
-
-  async function handleSubmit(values: Record<string, unknown>) {
-    if (!server) return;
-
-    const prompt = (values.prompt as string)?.trim();
-    if (!prompt) {
-      await showToast({ style: Toast.Style.Failure, title: "Prompt is empty" });
-      return;
-    }
-
-    const sessionId = values.session === NEW_SESSION ? undefined : (values.session as string);
-
-    // Collect enabled context items
-    const activeContext = contextItems.filter((item, i) => values[contextKey(item, i)] === true);
-    const fullPrompt = buildPrompt(prompt, activeContext);
-    const filePaths = activeContext.filter((c) => c.type === "screenshot").map((c) => c.value);
-
-    const toast = await showToast({ style: Toast.Style.Animated, title: "Dispatching..." });
-
-    const result = await dispatchToOpenCode({
-      prompt: fullPrompt,
-      server,
-      sessionId,
-      filePaths,
-      workingDirectory: projectDir || undefined,
-    });
-
-    if (result.success) {
-      toast.hide();
-
-      const originalText = initialPromptRef.current;
-      if (originalText && originalText !== prompt) {
-        learnFromEdit(originalText, prompt, server).catch(() => {});
-      }
-
-      await showHUD("Dispatched to OpenCode");
-      await popToRoot();
-    } else {
-      toast.style = Toast.Style.Failure;
-      toast.title = "Dispatch Failed";
-      toast.message = result.error;
-    }
-  }
+  const sessions = data?.sessions ?? [];
+  const contextItems = data?.contextItems ?? [];
+  const projectDir = data?.projectDir;
 
   return (
     <Form
@@ -119,20 +113,19 @@ export default function DispatchCommand() {
       }
     >
       <Form.TextArea
-        id="prompt"
+        {...itemProps.prompt}
         title="Prompt"
         placeholder="What do you want your agent to do?"
-        value={promptText}
         onChange={(text) => {
+          itemProps.prompt.onChange?.(text);
           if (initialPromptRef.current === null && text.trim().length > 0) {
             initialPromptRef.current = text;
           }
-          setPromptText(text);
         }}
         autoFocus
       />
 
-      <Form.Dropdown id="session" title="Session" defaultValue={sessions[0]?.id ?? NEW_SESSION}>
+      <Form.Dropdown {...itemProps.session} title="Session" defaultValue={sessions[0]?.id ?? NEW_SESSION}>
         <Form.Dropdown.Item value={NEW_SESSION} title="New Session" icon={Icon.Plus} />
         {sessions.map((s) => (
           <Form.Dropdown.Item
@@ -164,4 +157,8 @@ export default function DispatchCommand() {
       )}
     </Form>
   );
+}
+
+function contextKey(item: ContextItem, index: number): string {
+  return `ctx-${item.type}-${index}`;
 }
