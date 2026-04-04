@@ -6,7 +6,6 @@ import {
   showToast,
   Toast,
   Icon,
-  getPreferenceValues,
   popToRoot,
 } from "@raycast/api";
 import { useState, useEffect, useRef } from "react";
@@ -15,7 +14,6 @@ import {
   fetchSessions,
   fetchProjectDirectory,
   dispatch as dispatchToOpenCode,
-  timeAgo,
   abbreviateHome,
   type DiscoveredServer,
   type Session,
@@ -37,7 +35,6 @@ export default function DispatchCommand() {
 
   useEffect(() => {
     async function init() {
-      // Discover server
       const found = discoverServer();
       if (!found) {
         setServerError("OpenCode Desktop is not running. Start it first, then try again.");
@@ -46,7 +43,6 @@ export default function DispatchCommand() {
       }
       setServer(found);
 
-      // Fetch sessions, project dir, and context in parallel
       const [fetchedSessions, fetchedDir, fetchedContext] = await Promise.all([
         fetchSessions(found),
         fetchProjectDirectory(found),
@@ -57,13 +53,11 @@ export default function DispatchCommand() {
       setProjectDir(fetchedDir);
       setContextItems(fetchedContext);
 
-      // Enable items that are defaultEnabled
       const enabled = new Set<string>();
       fetchedContext.forEach((item, i) => {
         if (item.defaultEnabled) enabled.add(contextKey(item, i));
       });
       setEnabledContextIds(enabled);
-
       setIsLoading(false);
     }
     init();
@@ -91,11 +85,8 @@ export default function DispatchCommand() {
 
     setIsDispatching(true);
 
-    // Build context from enabled items
     const activeContext = contextItems.filter((item, i) => enabledContextIds.has(contextKey(item, i)));
     const fullPrompt = buildPrompt(promptText, activeContext);
-
-    // Collect file paths for screenshots
     const filePaths = activeContext.filter((c) => c.type === "screenshot").map((c) => c.value);
 
     const result = await dispatchToOpenCode({
@@ -109,9 +100,6 @@ export default function DispatchCommand() {
     setIsDispatching(false);
 
     if (result.success) {
-      // Learn vocabulary from any edits the user made to the prompt.
-      // Dispatches to OpenCode to let AI compare the before/after and
-      // write corrections directly to the vocabulary file. Fire and forget.
       const originalText = initialPromptRef.current;
       if (originalText && originalText !== promptText) {
         learnFromEdit(originalText, promptText, server).catch(() => {});
@@ -182,7 +170,6 @@ export default function DispatchCommand() {
         placeholder="What do you want your agent to do?"
         value={promptText}
         onChange={(text) => {
-          // Snapshot the first non-empty value as the "original" for vocabulary learning
           if (initialPromptRef.current === null && text.trim().length > 0) {
             initialPromptRef.current = text;
           }
@@ -217,8 +204,6 @@ export default function DispatchCommand() {
 }
 
 function SessionPicker(props: { sessions: Session[]; onSelect: (id: string) => void }) {
-  // This is used as an Action.Push target, but since Action.Push expects
-  // a React element, we render a Form-based session selector
   const { sessions, onSelect } = props;
   const [selectedSession, setSelectedSession] = useState(sessions[0]?.id || "");
 
@@ -236,12 +221,7 @@ function SessionPicker(props: { sessions: Session[]; onSelect: (id: string) => v
     >
       <Form.Dropdown id="session" title="Session" value={selectedSession} onChange={setSelectedSession}>
         {sessions.map((s) => (
-          <Form.Dropdown.Item
-            key={s.id}
-            value={s.id}
-            title={s.name}
-            icon={Icon.Message}
-          />
+          <Form.Dropdown.Item key={s.id} value={s.id} title={s.name} icon={Icon.Message} />
         ))}
       </Form.Dropdown>
     </Form>

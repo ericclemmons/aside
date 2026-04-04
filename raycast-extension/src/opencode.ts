@@ -9,7 +9,6 @@ export interface DiscoveredServer {
   username: string;
   password: string;
   cliPath: string;
-  attachTarget: string;
 }
 
 export interface Session {
@@ -19,9 +18,18 @@ export interface Session {
   directory?: string;
 }
 
+function baseURL(server: DiscoveredServer): string {
+  return `http://${server.host}:${server.port}`;
+}
+
+function authHeaders(server: DiscoveredServer): Record<string, string> {
+  if (!server.username || !server.password) return {};
+  const encoded = Buffer.from(`${server.username}:${server.password}`).toString("base64");
+  return { Authorization: `Basic ${encoded}` };
+}
+
 /**
  * Discover a running OpenCode Desktop server by scanning process list.
- * Mirrors the logic in bin/aside's discover_server().
  */
 export function discoverServer(): DiscoveredServer | null {
   let psOutput: string;
@@ -37,89 +45,52 @@ export function discoverServer(): DiscoveredServer | null {
 
     const portMatch = line.match(/--port[= ](\d+)/);
     if (!portMatch) continue;
-    const port = parseInt(portMatch[1], 10);
-
-    const hostMatch = line.match(/--hostname[= ](\S+)/);
-    const host = hostMatch ? hostMatch[1] : "127.0.0.1";
-
-    const userMatch = line.match(/OPENCODE_SERVER_USERNAME=(\S+)/);
-    const username = userMatch ? userMatch[1] : "opencode";
 
     const passMatch = line.match(/OPENCODE_SERVER_PASSWORD=(\S+)/);
     if (!passMatch) continue;
-    const password = passMatch[1];
 
+    const hostMatch = line.match(/--hostname[= ](\S+)/);
+    const userMatch = line.match(/OPENCODE_SERVER_USERNAME=(\S+)/);
     const cliMatch = line.match(/\/[^ ]*opencode-cli/);
-    const cliPath = cliMatch ? cliMatch[0] : "";
 
     return {
-      host,
-      port,
-      username,
-      password,
-      cliPath,
-      attachTarget: `http://${host}:${port}`,
+      host: hostMatch?.[1] ?? "127.0.0.1",
+      port: parseInt(portMatch[1], 10),
+      username: userMatch?.[1] ?? "opencode",
+      password: passMatch[1],
+      cliPath: cliMatch?.[0] ?? "",
     };
   }
 
   return null;
 }
 
-/**
- * Fetch sessions from the OpenCode server.
- */
 export async function fetchSessions(server: DiscoveredServer): Promise<Session[]> {
-  const url = `${server.attachTarget}/session`;
-  const headers: Record<string, string> = {};
-
-  if (server.username && server.password) {
-    const encoded = Buffer.from(`${server.username}:${server.password}`).toString("base64");
-    headers["Authorization"] = `Basic ${encoded}`;
-  }
-
-  const response = await fetch(url, { headers });
+  const response = await fetch(`${baseURL(server)}/session`, { headers: authHeaders(server) });
   if (!response.ok) return [];
 
   const json = (await response.json()) as Array<Record<string, unknown>>;
 
-  const sessions: Session[] = [];
-  for (const obj of json) {
-    const id = obj.id as string;
-    if (!id) continue;
-
-    const time = obj.time as Record<string, unknown> | undefined;
-    if (time?.archived != null) continue;
-
-    const name = (obj.title as string) || id;
-    const updatedMs = ((time?.updated as number) || (time?.created as number) || 0);
-    const updatedAt = new Date(updatedMs);
-    const directory = obj.directory as string | undefined;
-
-    sessions.push({ id, name, updatedAt, directory });
-  }
-
-  sessions.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-  return sessions;
+  return json
+    .filter((obj) => obj.id && !(obj.time as Record<string, unknown>)?.archived)
+    .map((obj) => {
+      const time = obj.time as Record<string, unknown> | undefined;
+      return {
+        id: obj.id as string,
+        name: (obj.title as string) || (obj.id as string),
+        updatedAt: new Date(((time?.updated as number) || (time?.created as number) || 0)),
+        directory: obj.directory as string | undefined,
+      };
+    })
+    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 }
 
-/**
- * Fetch the current project directory from the OpenCode server.
- */
 export async function fetchProjectDirectory(server: DiscoveredServer): Promise<string | null> {
-  const url = `${server.attachTarget}/project/current`;
-  const headers: Record<string, string> = {};
-
-  if (server.username && server.password) {
-    const encoded = Buffer.from(`${server.username}:${server.password}`).toString("base64");
-    headers["Authorization"] = `Basic ${encoded}`;
-  }
-
   try {
-    const response = await fetch(url, { headers });
+    const response = await fetch(`${baseURL(server)}/project/current`, { headers: authHeaders(server) });
     if (!response.ok) return null;
     const json = (await response.json()) as Record<string, unknown>;
-    const path = json.path as string;
-    return path || null;
+    return (json.path as string) || null;
   } catch {
     return null;
   }
@@ -127,6 +98,7 @@ export async function fetchProjectDirectory(server: DiscoveredServer): Promise<s
 
 /**
  * Dispatch a prompt to OpenCode via the CLI.
+ * The prompt is passed as a single argument after `--`.
  */
 export async function dispatch(opts: {
   prompt: string;
@@ -137,44 +109,24 @@ export async function dispatch(opts: {
   timeout?: number;
 }): Promise<{ success: boolean; error?: string }> {
   const { prompt, server, sessionId, filePaths = [], workingDirectory, timeout = 30000 } = opts;
-  const home = process.env.HOME || `/Users/${process.env.USER}`;
+  const home = process.env.HOME ?? "";
   const opencodePath = server.cliPath || `${home}/.opencode/bin/opencode`;
 
-  const args: string[] = ["--attach", server.attachTarget];
-
-  if (sessionId) {
-    args.push("--session", sessionId);
-  }
-
-  if (workingDirectory) {
-    args.push("--dir", workingDirectory);
-  }
+  const args: string[] = ["--attach", baseURL(server)];
+  if (sessionId) args.push("--session", sessionId);
+  if (workingDirectory) args.push("--dir", workingDirectory);
 
   args.push("run");
-
-  for (const path of filePaths) {
-    args.push(`--file=${path}`);
-  }
-
-  args.push("--");
-  args.push(...prompt.split(/\s+/).filter(Boolean));
+  for (const path of filePaths) args.push(`--file=${path}`);
+  args.push("--", prompt);
 
   const env: Record<string, string> = { ...process.env } as Record<string, string>;
   env.PATH = `${home}/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:${env.PATH || ""}`;
-
-  if (server.username) {
-    env.OPENCODE_SERVER_USERNAME = server.username;
-  }
-  if (server.password) {
-    env.OPENCODE_SERVER_PASSWORD = server.password;
-  }
+  if (server.username) env.OPENCODE_SERVER_USERNAME = server.username;
+  if (server.password) env.OPENCODE_SERVER_PASSWORD = server.password;
 
   try {
-    await execFileAsync(opencodePath, args, {
-      env,
-      cwd: workingDirectory || undefined,
-      timeout,
-    });
+    await execFileAsync(opencodePath, args, { env, cwd: workingDirectory || undefined, timeout });
     return { success: true };
   } catch (err: unknown) {
     const error = err as Error & { stderr?: string };
@@ -182,9 +134,6 @@ export async function dispatch(opts: {
   }
 }
 
-/**
- * Relative time string: "2m ago", "3h ago", etc.
- */
 export function timeAgo(date: Date): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
   if (seconds < 60) return "now";
@@ -194,9 +143,6 @@ export function timeAgo(date: Date): string {
   return `${Math.floor(seconds / 604800)}w ago`;
 }
 
-/**
- * Replace home directory with ~ for display.
- */
 export function abbreviateHome(path: string): string {
   const home = process.env.HOME || "";
   if (path === home) return "~";

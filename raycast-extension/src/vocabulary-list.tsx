@@ -1,18 +1,14 @@
 import { List, ActionPanel, Action, Icon, confirmAlert, Alert, showToast, Toast } from "@raycast/api";
 import { useState } from "react";
-import { loadVocabulary, type VocabularyEntry } from "./vocabulary";
-import { existsSync, writeFileSync } from "fs";
-import { environment } from "@raycast/api";
-import { join } from "path";
+import { loadVocabulary, vocabPath, type VocabularyEntry } from "./vocabulary";
+import { writeFileSync } from "fs";
 
 export default function VocabularyListCommand() {
   const [entries, setEntries] = useState<VocabularyEntry[]>(loadVocabulary());
 
-  function removeEntry(from: string, to: string) {
-    const updated = entries.filter((e) => !(e.from === from && e.to === to));
+  function save(updated: VocabularyEntry[]) {
     setEntries(updated);
-    const path = join(environment.supportPath, "vocabulary.json");
-    writeFileSync(path, JSON.stringify(updated, null, 2));
+    writeFileSync(vocabPath(), JSON.stringify(updated, null, 2));
   }
 
   async function clearAll() {
@@ -23,9 +19,7 @@ export default function VocabularyListCommand() {
         primaryAction: { title: "Clear", style: Alert.ActionStyle.Destructive },
       })
     ) {
-      setEntries([]);
-      const path = join(environment.supportPath, "vocabulary.json");
-      if (existsSync(path)) writeFileSync(path, "[]");
+      save([]);
       await showToast({ style: Toast.Style.Success, title: "Vocabulary cleared" });
     }
   }
@@ -41,7 +35,7 @@ export default function VocabularyListCommand() {
       {entries.map((entry, i) => (
         <List.Item
           key={`${entry.from}-${entry.to}-${i}`}
-          title={`${entry.from} → ${entry.to}`}
+          title={`${entry.from} -> ${entry.to}`}
           subtitle={`seen ${entry.count}x`}
           accessories={[{ text: new Date(entry.lastSeen).toLocaleDateString() }]}
           icon={Icon.Book}
@@ -51,7 +45,7 @@ export default function VocabularyListCommand() {
                 title="Remove"
                 icon={Icon.Trash}
                 style={Action.Style.Destructive}
-                onAction={() => removeEntry(entry.from, entry.to)}
+                onAction={() => save(entries.filter((e) => !(e.from === entry.from && e.to === entry.to)))}
               />
               <Action
                 title="Clear All"
@@ -60,10 +54,7 @@ export default function VocabularyListCommand() {
                 shortcut={{ modifiers: ["cmd", "shift"], key: "delete" }}
                 onAction={clearAll}
               />
-              <Action.CopyToClipboard
-                title="Copy Correction"
-                content={`${entry.from} → ${entry.to}`}
-              />
+              <Action.CopyToClipboard title="Copy Correction" content={`${entry.from} -> ${entry.to}`} />
             </ActionPanel>
           }
         />
