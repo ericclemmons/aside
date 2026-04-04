@@ -23,9 +23,9 @@
     },
     {
       "name": "vocabulary-list",
-      "title": "Vocabulary",
+      "title": "Custom Words",
       "subtitle": "Aside",
-      "description": "View and manage learned vocabulary corrections",
+      "description": "View and manage custom words for transcription accuracy",
       "mode": "view"
     }
   ],

@@ -1,43 +1,41 @@
 import { List, ActionPanel, Action, Icon, confirmAlert, Alert, showToast, Toast } from "@raycast/api";
 import { useState } from "react";
-import { loadVocabulary, vocabPath, type VocabularyEntry } from "./vocabulary";
+import { loadCustomWords, customWordsPath } from "./vocabulary";
 import { writeFileSync } from "fs";
 
 export default function VocabularyListCommand() {
-  const [entries, setEntries] = useState<VocabularyEntry[]>(loadVocabulary());
+  const [words, setWords] = useState<string[]>(loadCustomWords());
 
-  function save(updated: VocabularyEntry[]) {
-    setEntries(updated);
-    writeFileSync(vocabPath(), JSON.stringify(updated, null, 2));
+  function save(updated: string[]) {
+    setWords(updated);
+    writeFileSync(customWordsPath(), JSON.stringify(updated, null, 2));
   }
 
   async function clearAll() {
     if (
       await confirmAlert({
-        title: "Clear All Vocabulary",
-        message: `Remove all ${entries.length} learned words?`,
+        title: "Clear All Custom Words",
+        message: `Remove all ${words.length} words?`,
         primaryAction: { title: "Clear", style: Alert.ActionStyle.Destructive },
       })
     ) {
       save([]);
-      await showToast({ style: Toast.Style.Success, title: "Vocabulary cleared" });
+      await showToast({ style: Toast.Style.Success, title: "Custom words cleared" });
     }
   }
 
   return (
-    <List searchBarPlaceholder="Filter vocabulary...">
+    <List searchBarPlaceholder="Filter custom words...">
       <List.EmptyView
-        title="No Vocabulary Learned"
-        description="Edit a prompt before dispatching and Aside will learn your corrections"
+        title="No Custom Words"
+        description="Edit a prompt before dispatching and Aside will learn new words for transcription"
         icon={Icon.Book}
       />
 
-      {entries.map((entry, i) => (
+      {words.map((word, i) => (
         <List.Item
-          key={`${entry.from}-${entry.to}-${i}`}
-          title={`${entry.from} -> ${entry.to}`}
-          subtitle={`seen ${entry.count}x`}
-          accessories={[{ text: new Date(entry.lastSeen).toLocaleDateString() }]}
+          key={`${word}-${i}`}
+          title={word}
           icon={Icon.Book}
           actions={
             <ActionPanel>
@@ -45,7 +43,7 @@ export default function VocabularyListCommand() {
                 title="Remove"
                 icon={Icon.Trash}
                 style={Action.Style.Destructive}
-                onAction={() => save(entries.filter((e) => !(e.from === entry.from && e.to === entry.to)))}
+                onAction={() => save(words.filter((_, j) => j !== i))}
               />
               <Action
                 title="Clear All"
@@ -54,7 +52,7 @@ export default function VocabularyListCommand() {
                 shortcut={{ modifiers: ["cmd", "shift"], key: "delete" }}
                 onAction={clearAll}
               />
-              <Action.CopyToClipboard title="Copy Correction" content={`${entry.from} -> ${entry.to}`} />
+              <Action.CopyToClipboard title="Copy Word" content={word} />
             </ActionPanel>
           }
         />
