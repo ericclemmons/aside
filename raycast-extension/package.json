@@ -1,0 +1,63 @@
+{
+  "name": "aside",
+  "title": "Aside",
+  "description": "Context-aware dispatch to AI coding agents. Auto-captures what you're looking at and sends it to OpenCode.",
+  "icon": "command-icon.png",
+  "author": "ericclemmons",
+  "categories": ["Developer Tools", "Productivity"],
+  "license": "MIT",
+  "commands": [
+    {
+      "name": "dispatch",
+      "title": "Dispatch to OpenCode",
+      "subtitle": "Aside",
+      "description": "Capture context and dispatch a prompt to an OpenCode session",
+      "mode": "view"
+    },
+    {
+      "name": "sessions",
+      "title": "Browse Sessions",
+      "subtitle": "Aside",
+      "description": "Browse and manage OpenCode sessions",
+      "mode": "view"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "screenshotDir",
+      "title": "Screenshot Directory",
+      "description": "Directory to scan for recent screenshots",
+      "type": "directory",
+      "default": "~/Desktop",
+      "required": false
+    },
+    {
+      "name": "screenshotMaxAge",
+      "title": "Screenshot Max Age (minutes)",
+      "description": "Only show screenshots taken within this many minutes",
+      "type": "textfield",
+      "default": "5",
+      "required": false
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^1.93.0",
+    "@raycast/utils": "^1.19.0",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^1.0.11",
+    "@types/node": "22.13.9",
+    "eslint": "^8.57.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.8.2"
+  },
+  "scripts": {
+    "build": "ray build",
+    "dev": "ray develop",
+    "fix-lint": "ray lint --fix",
+    "lint": "ray lint",
+    "prepublish": "echo 'Error: no publish step' && exit 1",
+    "publish": "npx @raycast/api@latest publish"
+  }
+}
