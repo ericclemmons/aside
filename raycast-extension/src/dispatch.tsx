@@ -9,7 +9,7 @@ import {
   getPreferenceValues,
   popToRoot,
 } from "@raycast/api";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   discoverServer,
   fetchSessions,
@@ -21,6 +21,7 @@ import {
   type Session,
 } from "./opencode";
 import { gatherContext, buildPrompt, type ContextItem } from "./context";
+import { learnFromEdit } from "./vocabulary";
 
 export default function DispatchCommand() {
   const [server, setServer] = useState<DiscoveredServer | null>(null);
@@ -30,6 +31,7 @@ export default function DispatchCommand() {
   const [contextItems, setContextItems] = useState<ContextItem[]>([]);
   const [enabledContextIds, setEnabledContextIds] = useState<Set<string>>(new Set());
   const [promptText, setPromptText] = useState("");
+  const initialPromptRef = useRef<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDispatching, setIsDispatching] = useState(false);
 
@@ -107,6 +109,13 @@ export default function DispatchCommand() {
     setIsDispatching(false);
 
     if (result.success) {
+      // Learn vocabulary from any edits the user made to the prompt
+      const originalText = initialPromptRef.current;
+      if (originalText && originalText !== promptText) {
+        // Fire and forget — don't block the dispatch success flow
+        learnFromEdit(originalText, promptText).catch(() => {});
+      }
+
       await showHUD("Dispatched to OpenCode");
       await popToRoot();
     } else {
@@ -171,7 +180,13 @@ export default function DispatchCommand() {
         title="Prompt"
         placeholder="What do you want your agent to do?"
         value={promptText}
-        onChange={setPromptText}
+        onChange={(text) => {
+          // Snapshot the first non-empty value as the "original" for vocabulary learning
+          if (initialPromptRef.current === null && text.trim().length > 0) {
+            initialPromptRef.current = text;
+          }
+          setPromptText(text);
+        }}
         autoFocus
       />
 

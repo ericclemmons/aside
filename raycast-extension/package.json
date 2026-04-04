@@ -20,6 +20,13 @@
       "subtitle": "Aside",
       "description": "Browse and manage OpenCode sessions",
       "mode": "view"
+    },
+    {
+      "name": "vocabulary-list",
+      "title": "Vocabulary",
+      "subtitle": "Aside",
+      "description": "View and manage learned vocabulary corrections",
+      "mode": "view"
     }
   ],
   "preferences": [
