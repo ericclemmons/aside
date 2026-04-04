@@ -1,61 +1,53 @@
-import { List, ActionPanel, Action, showToast, Toast, Icon } from "@raycast/api";
-import { useState, useEffect } from "react";
-import {
-  discoverServer,
-  fetchSessions,
-  timeAgo,
-  abbreviateHome,
-  type DiscoveredServer,
-  type Session,
-} from "./opencode";
+import { List, ActionPanel, Action, Detail, Icon } from "@raycast/api";
+import { usePromise } from "@raycast/utils";
+import { discoverServer, fetchSessions, timeAgo, abbreviateHome } from "./opencode";
 
 export default function SessionsCommand() {
-  const [server, setServer] = useState<DiscoveredServer | null>(null);
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const {
+    data: sessions,
+    isLoading,
+    error,
+  } = usePromise(async () => {
+    const server = discoverServer();
+    if (!server) throw new Error("OpenCode Desktop is not running. Start it first.");
+    return fetchSessions(server);
+  });
 
-  useEffect(() => {
-    async function init() {
-      const found = discoverServer();
-      if (!found) {
-        await showToast({
-          style: Toast.Style.Failure,
-          title: "OpenCode Desktop not running",
-          message: "Start OpenCode Desktop first",
-        });
-        setIsLoading(false);
-        return;
-      }
-      setServer(found);
-      const fetched = await fetchSessions(found);
-      setSessions(fetched);
-      setIsLoading(false);
-    }
-    init();
-  }, []);
+  if (error) {
+    return (
+      <Detail
+        markdown={`## OpenCode Desktop Not Found\n\n${error.message}`}
+        actions={
+          <ActionPanel>
+            <Action.OpenInBrowser title="Get OpenCode Desktop" url="https://opencode.ai" />
+          </ActionPanel>
+        }
+      />
+    );
+  }
 
   // Group sessions by directory
-  const grouped = new Map<string, Session[]>();
-  for (const s of sessions) {
+  const grouped = new Map<string, typeof sessions>();
+  for (const s of sessions ?? []) {
     const dir = s.directory ? abbreviateHome(s.directory) : "Unknown";
-    const existing = grouped.get(dir) || [];
+    const existing = grouped.get(dir) ?? [];
     existing.push(s);
     grouped.set(dir, existing);
   }
 
   return (
     <List isLoading={isLoading} searchBarPlaceholder="Filter sessions...">
-      {sessions.length === 0 && !isLoading && (
+      {(sessions ?? []).length === 0 && !isLoading && (
         <List.EmptyView
-          title={server ? "No Sessions" : "OpenCode Desktop Not Running"}
-          description={server ? "Start a new session from the Dispatch command" : "Start OpenCode Desktop first"}
-          icon={server ? Icon.Message : Icon.ExclamationMark}
+          title="No Sessions"
+          description="Start a new session from the Dispatch command"
+          icon={Icon.Message}
         />
       )}
 
       {Array.from(grouped.entries()).map(([dir, dirSessions]) => (
         <List.Section key={dir} title={dir}>
-          {dirSessions.map((s) => (
+          {(dirSessions ?? []).map((s) => (
             <List.Item
               key={s.id}
               title={s.name}
@@ -64,10 +56,7 @@ export default function SessionsCommand() {
               icon={Icon.Message}
               actions={
                 <ActionPanel>
-                  <Action.CopyToClipboard
-                    title="Copy Session ID"
-                    content={s.id}
-                  />
+                  <Action.CopyToClipboard title="Copy Session ID" content={s.id} />
                 </ActionPanel>
               }
             />

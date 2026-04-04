@@ -157,41 +157,21 @@ async function captureRecentScreenshots(): Promise<ContextItem[]> {
 }
 
 /**
- * Build a prompt string with context, matching PromptBuilder.swift format.
+ * Build a prompt string with context as blockquoted preamble.
  */
 export function buildPrompt(text: string, contextItems: ContextItem[]): string {
-  const parts: string[] = [];
+  const quoted: string[] = [];
 
-  const selectedText = contextItems.find((c) => c.type === "selectedText");
-  if (selectedText) {
-    const truncated = selectedText.value.length > 500 ? selectedText.value.slice(0, 500) + "..." : selectedText.value;
-    const quoted = truncated
-      .split("\n")
-      .map((line) => `> ${line}`)
-      .join("\n");
-    parts.push(quoted);
+  for (const item of contextItems) {
+    if (item.type === "screenshot") continue; // attached as files, not inline
+    if (item.type === "url") {
+      quoted.push(`> ${item.value}`);
+    } else {
+      const lines = item.value.split("\n").map((line) => `> ${line}`);
+      quoted.push(lines.join("\n"));
+    }
   }
 
-  const url = contextItems.find((c) => c.type === "url");
-  if (url) {
-    parts.push(`> - ${url.value}`);
-  }
-
-  const clipboard = contextItems.find((c) => c.type === "clipboard");
-  if (clipboard) {
-    const truncated = clipboard.value.length > 300 ? clipboard.value.slice(0, 300) + "..." : clipboard.value;
-    const quoted = truncated
-      .split("\n")
-      .map((line) => `> ${line}`)
-      .join("\n");
-    parts.push(quoted);
-  }
-
-  if (parts.length > 0) {
-    parts.push("");
-  }
-
-  parts.push(text);
-
-  return parts.join("\n");
+  if (quoted.length === 0) return text;
+  return quoted.join("\n") + "\n\n" + text;
 }

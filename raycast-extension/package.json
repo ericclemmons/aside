@@ -1,4 +1,5 @@
 {
+  "$schema": "https://www.raycast.com/schemas/extension.json",
   "name": "aside",
   "title": "Aside",
   "description": "Context-aware dispatch to AI coding agents. Auto-captures what you're looking at and sends it to OpenCode.",
