@@ -1,28 +1,21 @@
-import { showToast, Toast } from "@raycast/api";
+import { environment, showToast, Toast } from "@raycast/api";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { dispatch, type DiscoveredServer } from "./opencode";
 
-/**
- * Path to the shared custom_words.json used by the native Aside app's STT engines.
- * Whisper uses these as initialPrompt, Apple STT uses them as contextualStrings.
- * OpenCode writes to this file directly — the words are immediately available
- * to the next transcription.
- */
-const CUSTOM_WORDS_DIR = join(
-  process.env.HOME ?? "",
-  "Library/Application Support/com.erriclemmons.aside.app",
-);
-const CUSTOM_WORDS_PATH = join(CUSTOM_WORDS_DIR, "custom_words.json");
+const CUSTOM_WORDS_FILE = "custom_words.json";
 
 export function customWordsPath(): string {
-  return CUSTOM_WORDS_PATH;
+  const dir = environment.supportPath;
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  return join(dir, CUSTOM_WORDS_FILE);
 }
 
 export function loadCustomWords(): string[] {
-  if (!existsSync(CUSTOM_WORDS_PATH)) return [];
+  const path = customWordsPath();
+  if (!existsSync(path)) return [];
   try {
-    return JSON.parse(readFileSync(CUSTOM_WORDS_PATH, "utf-8")) as string[];
+    return JSON.parse(readFileSync(path, "utf-8")) as string[];
   } catch {
     return [];
   }
@@ -31,7 +24,6 @@ export function loadCustomWords(): string[] {
 /**
  * After a successful dispatch, if the user edited the prompt, ask OpenCode
  * to compare before/after and add corrected words to custom_words.json.
- * These words are immediately picked up by the STT engine on next recording.
  */
 export async function learnFromEdit(
   original: string,
@@ -40,13 +32,12 @@ export async function learnFromEdit(
 ): Promise<void> {
   if (original.trim() === edited.trim()) return;
 
-  // Ensure the file exists so OpenCode can read/write it
-  if (!existsSync(CUSTOM_WORDS_DIR)) mkdirSync(CUSTOM_WORDS_DIR, { recursive: true });
-  if (!existsSync(CUSTOM_WORDS_PATH)) writeFileSync(CUSTOM_WORDS_PATH, "[]");
+  const path = customWordsPath();
+  if (!existsSync(path)) writeFileSync(path, "[]");
 
   const currentWords = loadCustomWords();
 
-  const prompt = `Compare these 2 prompts. The 1st is speech-to-text output, the 2nd is the user's corrected version. If it looks like the user corrected a typo or STT error from the 1st prompt, update ${CUSTOM_WORDS_PATH} with the new words or phrases.
+  const prompt = `Compare these 2 prompts. The 1st is speech-to-text output, the 2nd is the user's corrected version. If it looks like the user corrected a typo or STT error from the 1st prompt, update ${path} with the new words or phrases.
 
 ORIGINAL: "${original}"
 CORRECTED: "${edited}"
