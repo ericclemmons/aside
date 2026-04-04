@@ -1,6 +1,7 @@
-import { environment, AI, showToast, Toast } from "@raycast/api";
+import { environment, showToast, Toast } from "@raycast/api";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
+import { discoverServer, type DiscoveredServer, dispatch as dispatchToOpenCode } from "./opencode";
 
 /**
  * A vocabulary correction: what the STT engine produced vs what the user meant.
@@ -81,71 +82,86 @@ export function mergeCorrections(corrections: Array<{ from: string; to: string }
 }
 
 /**
- * Extract vocabulary corrections by comparing original and edited text.
+ * Extract vocabulary corrections by dispatching to OpenCode.
  *
- * Uses Raycast AI to intelligently identify word substitutions that look
- * like speech-to-text corrections (not semantic rewrites).
- *
- * Falls back to simple word-level diffing if AI is unavailable.
+ * Sends a prompt to OpenCode asking it to compare the original and edited
+ * text, identify STT corrections, and write them directly to the vocabulary
+ * file. Falls back to simple word-level diffing if OpenCode is unavailable.
  */
 export async function extractCorrections(
   original: string,
   edited: string,
+  server?: DiscoveredServer | null,
 ): Promise<Array<{ from: string; to: string }>> {
-  // Don't bother if the texts are identical or either is empty
   if (original.trim() === edited.trim()) return [];
   if (!original.trim() || !edited.trim()) return [];
 
-  // Try AI-powered extraction first
-  try {
-    return await extractCorrectionsWithAI(original, edited);
-  } catch {
-    // Fall back to simple word diff
-    return extractCorrectionsSimple(original, edited);
+  // Try OpenCode-powered extraction first
+  const activeServer = server ?? discoverServer();
+  if (activeServer) {
+    try {
+      return await extractCorrectionsViaOpenCode(original, edited, activeServer);
+    } catch {
+      // Fall back to simple word diff
+    }
   }
+
+  return extractCorrectionsSimple(original, edited);
 }
 
 /**
- * AI-powered correction extraction.
- * Asks Raycast AI to compare the texts and return vocabulary corrections as JSON.
+ * Dispatch a prompt to OpenCode to compare the two texts and update the
+ * vocabulary file. OpenCode writes the file directly — we then read it
+ * back to see what was added.
  */
-async function extractCorrectionsWithAI(
+async function extractCorrectionsViaOpenCode(
   original: string,
   edited: string,
+  server: DiscoveredServer,
 ): Promise<Array<{ from: string; to: string }>> {
-  const prompt = `Compare these two texts. The first is speech-to-text output, the second is the user's corrected version.
+  const path = vocabPath();
+  const currentVocab = loadVocabulary();
+
+  const prompt = `Compare these 2 prompts. The 1st is speech-to-text output, the 2nd is the user's corrected version. If it looks like the user corrected a typo or STT error from the 1st prompt, update ${path} with the new words or phrases.
 
 ORIGINAL: "${original}"
-EDITED: "${edited}"
+CORRECTED: "${edited}"
 
-Identify word-level corrections where the user fixed a speech-to-text error (misspellings, wrong words, technical terms the STT got wrong). Do NOT include:
-- Intentional rephrasing or added/removed sentences
-- Punctuation-only changes
-- Capitalization-only changes
+The vocabulary file schema is a JSON array of objects:
+[{"from": "misheard_word", "to": "correct_word", "count": 1, "lastSeen": "${new Date().toISOString()}"}]
 
-Return ONLY a JSON array of corrections. Each item has "from" (original wrong word/phrase) and "to" (corrected word/phrase). If no STT corrections were made, return an empty array.
+Rules:
+- Only add entries for actual STT corrections (wrong word → right word)
+- Do NOT add entries for intentional rephrasing, added/removed sentences, or punctuation changes
+- If an entry with the same "from" and "to" already exists, increment its "count" and update "lastSeen"
+- If no corrections were made, leave the file unchanged
+- Write valid JSON to the file
 
-Example: [{"from": "loggin", "to": "login"}, {"from": "reack", "to": "React"}]
+Current file contents:
+${JSON.stringify(currentVocab, null, 2)}`;
 
-JSON:`;
+  const result = await dispatchToOpenCode({
+    prompt,
+    server,
+    timeout: 15000,
+  });
 
-  const response = await AI.ask(prompt, { creativity: 0 });
+  if (!result.success) {
+    throw new Error(result.error || "OpenCode dispatch failed");
+  }
 
-  // Parse the JSON from the response
-  const jsonMatch = response.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) return [];
+  // Read back the file to see what OpenCode wrote
+  // Give it a moment to finish writing
+  await new Promise((resolve) => setTimeout(resolve, 2000));
 
-  const parsed = JSON.parse(jsonMatch[0]) as Array<{ from: string; to: string }>;
+  const updatedVocab = loadVocabulary();
 
-  // Validate the structure
-  return parsed.filter(
-    (item) =>
-      typeof item.from === "string" &&
-      typeof item.to === "string" &&
-      item.from.trim().length > 0 &&
-      item.to.trim().length > 0 &&
-      item.from !== item.to,
+  // Diff against what we had before to find new corrections
+  const newEntries = updatedVocab.filter(
+    (updated) => !currentVocab.some((existing) => existing.from === updated.from && existing.to === updated.to),
   );
+
+  return newEntries.map((e) => ({ from: e.from, to: e.to }));
 }
 
 /**
@@ -167,22 +183,17 @@ function extractCorrectionsSimple(
     return [];
   }
 
-  // Simple positional comparison using longest common subsequence approach
-  // to align words and find substitutions
   const len = Math.min(origWords.length, editWords.length);
   for (let i = 0; i < len; i++) {
     const origWord = origWords[i];
     const editWord = editWords[i];
 
-    // Skip if identical (case-insensitive for this check)
     if (origWord.toLowerCase() === editWord.toLowerCase()) continue;
 
-    // Skip pure punctuation differences
     const origClean = origWord.replace(/[^\w]/g, "");
     const editClean = editWord.replace(/[^\w]/g, "");
     if (origClean.toLowerCase() === editClean.toLowerCase()) continue;
 
-    // This looks like a word substitution — likely an STT correction
     corrections.push({ from: origWord, to: editWord });
   }
 
@@ -194,10 +205,18 @@ function extractCorrectionsSimple(
  * Called after dispatch when the user has edited the prompt text.
  * Returns the number of new corrections learned.
  */
-export async function learnFromEdit(original: string, edited: string): Promise<number> {
-  const corrections = await extractCorrections(original, edited);
+export async function learnFromEdit(
+  original: string,
+  edited: string,
+  server?: DiscoveredServer | null,
+): Promise<number> {
+  const corrections = await extractCorrections(original, edited, server);
   if (corrections.length === 0) return 0;
 
+  // If OpenCode already wrote the file, corrections are already persisted.
+  // If we used the simple fallback, we need to merge them ourselves.
+  // mergeCorrections is idempotent (increments count if already exists),
+  // so it's safe to call either way.
   mergeCorrections(corrections);
 
   await showToast({

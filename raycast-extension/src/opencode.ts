@@ -134,8 +134,9 @@ export async function dispatch(opts: {
   sessionId?: string;
   filePaths?: string[];
   workingDirectory?: string;
+  timeout?: number;
 }): Promise<{ success: boolean; error?: string }> {
-  const { prompt, server, sessionId, filePaths = [], workingDirectory } = opts;
+  const { prompt, server, sessionId, filePaths = [], workingDirectory, timeout = 30000 } = opts;
   const home = process.env.HOME || `/Users/${process.env.USER}`;
   const opencodePath = server.cliPath || `${home}/.opencode/bin/opencode`;
 
@@ -172,7 +173,7 @@ export async function dispatch(opts: {
     await execFileAsync(opencodePath, args, {
       env,
       cwd: workingDirectory || undefined,
-      timeout: 30000,
+      timeout,
     });
     return { success: true };
   } catch (err: unknown) {

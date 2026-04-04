@@ -109,11 +109,12 @@ export default function DispatchCommand() {
     setIsDispatching(false);
 
     if (result.success) {
-      // Learn vocabulary from any edits the user made to the prompt
+      // Learn vocabulary from any edits the user made to the prompt.
+      // Dispatches to OpenCode to let AI compare the before/after and
+      // write corrections directly to the vocabulary file. Fire and forget.
       const originalText = initialPromptRef.current;
       if (originalText && originalText !== promptText) {
-        // Fire and forget — don't block the dispatch success flow
-        learnFromEdit(originalText, promptText).catch(() => {});
+        learnFromEdit(originalText, promptText, server).catch(() => {});
       }
 
       await showHUD("Dispatched to OpenCode");
