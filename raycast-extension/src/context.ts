@@ -79,6 +79,7 @@ async function captureBrowserURL(): Promise<ContextItem | null> {
       case "Microsoft Edge":
       case "Chromium":
       case "Arc":
+      case "Dia":
         script = `tell application "${appName}" to return URL of active tab of front window`;
         break;
       case "Safari":
