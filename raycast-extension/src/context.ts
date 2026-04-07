@@ -5,7 +5,7 @@ import { join } from "path";
 import { getPreferenceValues } from "@raycast/api";
 
 export interface ContextItem {
-  type: "selectedText" | "url" | "clipboard" | "screenshot";
+  type: "selectedText" | "url" | "screenshot";
   label: string;
   value: string;
   /** Whether this item is checked by default */
@@ -20,14 +20,18 @@ interface Preferences {
 /**
  * Gather all context items from the environment.
  * Each source is independent — failures are silently skipped.
+ * Selected text is deduped against clipboard (Raycast's getSelectedText
+ * sometimes returns clipboard contents when nothing is actually selected).
  */
 export async function gatherContext(): Promise<ContextItem[]> {
   const items: ContextItem[] = [];
 
+  // Read clipboard first so we can dedupe selected text against it
+  const clipboardText = await Clipboard.readText().catch(() => undefined);
+
   const results = await Promise.allSettled([
-    captureSelectedText(),
+    captureSelectedText(clipboardText),
     captureBrowserURL(),
-    captureClipboard(),
     captureRecentScreenshots(),
   ]);
 
@@ -44,22 +48,23 @@ export async function gatherContext(): Promise<ContextItem[]> {
   return items;
 }
 
-async function captureSelectedText(): Promise<ContextItem | null> {
+async function captureSelectedText(clipboardText: string | undefined): Promise<ContextItem | null> {
   try {
     const text = await getSelectedText();
-    if (text && text.trim().length > 0) {
-      const preview = text.length > 80 ? text.slice(0, 80) + "..." : text;
-      return {
-        type: "selectedText",
-        label: `Selected text: "${preview}"`,
-        value: text,
-        defaultEnabled: true,
-      };
-    }
+    if (!text || text.trim().length === 0) return null;
+    // Dedupe: if "selected text" is identical to clipboard, it's not actually selected
+    if (clipboardText && text === clipboardText) return null;
+
+    const preview = text.length > 80 ? text.slice(0, 80) + "..." : text;
+    return {
+      type: "selectedText",
+      label: `Selected text: "${preview}"`,
+      value: text,
+      defaultEnabled: true,
+    };
   } catch {
-    // No text selected — not an error
+    return null;
   }
-  return null;
 }
 
 async function captureBrowserURL(): Promise<ContextItem | null> {
@@ -95,24 +100,6 @@ async function captureBrowserURL(): Promise<ContextItem | null> {
     }
   } catch {
     // Not a browser or no URL — not an error
-  }
-  return null;
-}
-
-async function captureClipboard(): Promise<ContextItem | null> {
-  try {
-    const text = await Clipboard.readText();
-    if (text && text.trim().length > 0) {
-      const preview = text.length > 80 ? text.slice(0, 80) + "..." : text;
-      return {
-        type: "clipboard",
-        label: `Clipboard: "${preview}"`,
-        value: text,
-        defaultEnabled: false,
-      };
-    }
-  } catch {
-    // Clipboard empty or inaccessible
   }
   return null;
 }

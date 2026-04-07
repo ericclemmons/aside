@@ -12,16 +12,14 @@ import {
 import { gatherContext, buildPrompt, type ContextItem } from "./context";
 import { learnFromEdit } from "./vocabulary";
 
-const NEW_SESSION = "__new__";
-
 interface FormValues {
   prompt: string;
-  session: string;
   [key: string]: unknown; // dynamic context checkbox IDs
 }
 
 export default function DispatchCommand() {
   const initialPromptRef = useRef<string | null>(null);
+  const targetSessionRef = useRef<string | undefined>(undefined);
 
   const { data, isLoading, error } = usePromise(async () => {
     const server = discoverServer();
@@ -36,7 +34,7 @@ export default function DispatchCommand() {
     return { server, sessions, projectDir, contextItems };
   });
 
-  const { handleSubmit, itemProps, setValue } = useForm<FormValues>({
+  const { handleSubmit, itemProps } = useForm<FormValues>({
     async onSubmit(values) {
       if (!data) return;
 
@@ -46,7 +44,7 @@ export default function DispatchCommand() {
         return;
       }
 
-      const sessionId = values.session === NEW_SESSION ? undefined : values.session;
+      const sessionId = targetSessionRef.current;
 
       const activeContext = (data.contextItems ?? []).filter(
         (item, i) => values[contextKey(item, i)] === true,
@@ -102,13 +100,43 @@ export default function DispatchCommand() {
   const sessions = data?.sessions ?? [];
   const contextItems = data?.contextItems ?? [];
   const projectDir = data?.projectDir;
+  const recent = sessions[0];
+
+  function submitTo(sessionId: string | undefined) {
+    targetSessionRef.current = sessionId;
+    return handleSubmit;
+  }
 
   return (
     <Form
       isLoading={isLoading}
       actions={
         <ActionPanel>
-          <Action.SubmitForm title="Send" icon={Icon.PaperAirplane} onSubmit={handleSubmit} />
+          {recent && (
+            <Action.SubmitForm
+              title={`Send to ${recent.name}`}
+              icon={Icon.PaperAirplane}
+              onSubmit={(values) => submitTo(recent.id)(values as FormValues)}
+            />
+          )}
+          <Action.SubmitForm
+            title="Send to New Session"
+            icon={Icon.Plus}
+            shortcut={{ modifiers: ["cmd"], key: "enter" }}
+            onSubmit={(values) => submitTo(undefined)(values as FormValues)}
+          />
+          {sessions.length > 1 && (
+            <ActionPanel.Section title="Send to Session">
+              {sessions.slice(1).map((s) => (
+                <Action.SubmitForm
+                  key={s.id}
+                  title={s.name}
+                  icon={Icon.Message}
+                  onSubmit={(values) => submitTo(s.id)(values as FormValues)}
+                />
+              ))}
+            </ActionPanel.Section>
+          )}
         </ActionPanel>
       }
     >
@@ -125,19 +153,6 @@ export default function DispatchCommand() {
         autoFocus
       />
 
-      <Form.Dropdown {...itemProps.session} title="Session" defaultValue={sessions[0]?.id ?? NEW_SESSION}>
-        <Form.Dropdown.Item value={NEW_SESSION} title="New Session" icon={Icon.Plus} />
-        {sessions.map((s) => (
-          <Form.Dropdown.Item
-            key={s.id}
-            value={s.id}
-            title={s.name}
-            icon={Icon.Message}
-            keywords={[s.directory ? abbreviateHome(s.directory) : "", timeAgo(s.updatedAt)]}
-          />
-        ))}
-      </Form.Dropdown>
-
       {contextItems.length > 0 && <Form.Separator />}
 
       {contextItems.map((item, i) => (
@@ -149,12 +164,14 @@ export default function DispatchCommand() {
         />
       ))}
 
-      {projectDir && (
-        <>
-          <Form.Separator />
-          <Form.Description title="Project" text={abbreviateHome(projectDir)} />
-        </>
+      {(recent || projectDir) && <Form.Separator />}
+      {recent && (
+        <Form.Description
+          title="Session"
+          text={`${recent.name} · ${timeAgo(recent.updatedAt)}`}
+        />
       )}
+      {projectDir && <Form.Description title="Project" text={abbreviateHome(projectDir)} />}
     </Form>
   );
 }

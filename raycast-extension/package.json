@@ -14,20 +14,6 @@
       "subtitle": "Aside",
       "description": "Capture context and dispatch a prompt to an OpenCode session",
       "mode": "view"
-    },
-    {
-      "name": "sessions",
-      "title": "Browse Sessions",
-      "subtitle": "Aside",
-      "description": "Browse and manage OpenCode sessions",
-      "mode": "view"
-    },
-    {
-      "name": "vocabulary-list",
-      "title": "Custom Words",
-      "subtitle": "Aside",
-      "description": "View and manage custom words for transcription accuracy",
-      "mode": "view"
     }
   ],
   "preferences": [
