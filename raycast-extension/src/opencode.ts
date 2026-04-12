@@ -116,21 +116,21 @@ export async function dispatch(opts: {
   if (workingDirectory) args.push("--dir", workingDirectory);
 
   args.push("run");
-  for (const path of filePaths) args.push(`--file=${path}`);
-  args.push("--", ...prompt.split(/\s+/).filter(Boolean));
+  for (const path of filePaths) args.push("--file", path);
+  args.push("--", prompt);
 
   const env: Record<string, string> = { ...process.env } as Record<string, string>;
   env.PATH = `${home}/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:${env.PATH || ""}`;
   if (server.username) env.OPENCODE_SERVER_USERNAME = server.username;
   if (server.password) env.OPENCODE_SERVER_PASSWORD = server.password;
 
-  console.log("[dispatch]", opencodePath, args.join(" "));
+  console.log("[dispatch]", opencodePath, JSON.stringify(args));
 
   try {
     const { stderr } = await execFileAsync(opencodePath, args, {
       env,
       cwd: workingDirectory || undefined,
-      timeout: 30000,
+      timeout: 60000,
     });
     if (stderr?.trim()) {
       console.error("[dispatch] stderr:", stderr.trim());
