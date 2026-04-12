@@ -30,7 +30,7 @@
       "title": "Screenshot Max Age (minutes)",
       "description": "Only show screenshots taken within this many minutes",
       "type": "textfield",
-      "default": "5",
+      "default": "1440",
       "required": false
     }
   ],
