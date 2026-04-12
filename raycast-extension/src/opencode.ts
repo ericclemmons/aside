@@ -1,7 +1,4 @@
-import { execSync, execFile } from "child_process";
-import { promisify } from "util";
-
-const execFileAsync = promisify(execFile);
+import { execSync, spawn } from "child_process";
 
 export interface DiscoveredServer {
   host: string;
@@ -98,7 +95,11 @@ export async function fetchProjectDirectory(server: DiscoveredServer): Promise<s
 
 /**
  * Dispatch a prompt to OpenCode via the CLI.
- * The prompt is passed as a single argument after `--`.
+ * Matches the Aside Swift app's CLIDispatcher exactly:
+ * - --file=path (single arg, handles spaces via execv)
+ * - prompt split by spaces/tabs into separate argv entries
+ * - fire-and-forget (don't wait for exit)
+ * - Process spawned directly (no shell)
  */
 export async function dispatch(opts: {
   prompt: string;
@@ -111,13 +112,20 @@ export async function dispatch(opts: {
   const home = process.env.HOME ?? "";
   const opencodePath = server.cliPath || `${home}/.opencode/bin/opencode`;
 
+  // Global flags before subcommand (matches Swift: --attach, --session, --dir before "run")
   const args: string[] = ["--attach", baseURL(server)];
   if (sessionId) args.push("--session", sessionId);
   if (workingDirectory) args.push("--dir", workingDirectory);
 
   args.push("run");
-  for (const path of filePaths) args.push("--file", path);
-  args.push("--", prompt);
+
+  // --file=path as single arg (matches Swift: args.append("--file=\(path)"))
+  for (const path of filePaths) args.push(`--file=${path}`);
+
+  // Prompt split by spaces/tabs into separate argv entries
+  // (matches Swift: prompt.components(separatedBy: .whitespaces).filter { !$0.isEmpty })
+  args.push("--");
+  args.push(...prompt.split(/[ \t]+/).filter(Boolean));
 
   const env: Record<string, string> = { ...process.env } as Record<string, string>;
   env.PATH = `${home}/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:${env.PATH || ""}`;
@@ -126,22 +134,45 @@ export async function dispatch(opts: {
 
   console.log("[dispatch]", opencodePath, JSON.stringify(args));
 
-  try {
-    const { stderr } = await execFileAsync(opencodePath, args, {
-      env,
-      cwd: workingDirectory || undefined,
-      timeout: 60000,
-    });
-    if (stderr?.trim()) {
-      console.error("[dispatch] stderr:", stderr.trim());
+  // Fire-and-forget (matches Swift: process.run() without waitUntilExit)
+  return new Promise((resolve) => {
+    try {
+      const child = spawn(opencodePath, args, {
+        env,
+        cwd: workingDirectory || undefined,
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+
+      let stderr = "";
+      child.stderr.on("data", (data: Buffer) => {
+        const str = data.toString().trim();
+        if (str) {
+          console.error("[dispatch] stderr:", str);
+          stderr += str + "\n";
+        }
+      });
+
+      child.on("error", (err) => {
+        console.error("[dispatch] spawn error:", err.message);
+        resolve({ success: false, error: err.message });
+      });
+
+      child.on("exit", (code) => {
+        if (code !== 0) {
+          const detail = stderr.trim() || `opencode-cli exited with code ${code}`;
+          console.error("[dispatch] exited with code", code, detail);
+          resolve({ success: false, error: detail });
+        } else {
+          console.log("[dispatch] success");
+          resolve({ success: true });
+        }
+      });
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.error("[dispatch] failed:", error.message);
+      resolve({ success: false, error: error.message });
     }
-    return { success: true };
-  } catch (err: unknown) {
-    const error = err as Error & { stderr?: string; stdout?: string };
-    const detail = error.stderr?.trim() || error.stdout?.trim() || error.message;
-    console.error("[dispatch] failed:", detail);
-    return { success: false, error: detail };
-  }
+  });
 }
 
 export function timeAgo(date: Date): string {
