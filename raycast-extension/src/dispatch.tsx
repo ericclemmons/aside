@@ -142,8 +142,10 @@ export default function DispatchCommand() {
 
   function detailMarkdown(item: ContextItem): string {
     switch (item.type) {
-      case "screenshot":
-        return `![Screenshot](${item.value})`;
+      case "screenshot": {
+        const encoded = encodeURI(`file://${item.value}`);
+        return `![Screenshot](${encoded})`;
+      }
       case "url":
         return `### URL\n\n${item.value}`;
       case "selectedText":
@@ -183,12 +185,13 @@ export default function DispatchCommand() {
                 detail={<List.Item.Detail markdown={detailMarkdown(item)} />}
                 actions={
                   <ActionPanel>
+                    {sessionActions()}
                     <Action
                       title={enabled ? "Exclude from Prompt" : "Include in Prompt"}
                       icon={enabled ? Icon.XMarkCircle : Icon.CheckCircle}
+                      shortcut={{ modifiers: ["cmd"], key: "d" }}
                       onAction={() => toggleItem(item, i)}
                     />
-                    {sessionActions()}
                   </ActionPanel>
                 }
               />
