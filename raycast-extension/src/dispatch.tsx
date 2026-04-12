@@ -1,6 +1,17 @@
-import { Form, ActionPanel, Action, Detail, showHUD, showToast, Toast, Icon, Image, popToRoot } from "@raycast/api";
-import { useForm, usePromise } from "@raycast/utils";
-import { useRef } from "react";
+import {
+  List,
+  ActionPanel,
+  Action,
+  Detail,
+  showHUD,
+  showToast,
+  Toast,
+  Icon,
+  popToRoot,
+  Color,
+} from "@raycast/api";
+import { usePromise } from "@raycast/utils";
+import { useState, useCallback, useRef } from "react";
 import {
   discoverServer,
   fetchSessions,
@@ -12,14 +23,10 @@ import {
 import { gatherContext, buildPrompt, type ContextItem } from "./context";
 import { learnFromEdit } from "./vocabulary";
 
-interface FormValues {
-  prompt: string;
-  [key: string]: unknown; // dynamic context checkbox IDs
-}
-
 export default function DispatchCommand() {
+  const [prompt, setPrompt] = useState("");
   const initialPromptRef = useRef<string | null>(null);
-  const targetSessionRef = useRef<string | undefined>(undefined);
+  const [toggledItems, setToggledItems] = useState<Record<string, boolean>>({});
 
   const { data, isLoading, error } = usePromise(async () => {
     const server = discoverServer();
@@ -34,22 +41,35 @@ export default function DispatchCommand() {
     return { server, sessions, projectDir, contextItems };
   });
 
-  const { handleSubmit, itemProps } = useForm<FormValues>({
-    async onSubmit(values) {
+  const contextItems = data?.contextItems ?? [];
+  const sessions = data?.sessions ?? [];
+  const projectDir = data?.projectDir;
+
+  function isItemEnabled(item: ContextItem, index: number): boolean {
+    const key = contextKey(item, index);
+    return key in toggledItems ? toggledItems[key] : item.defaultEnabled;
+  }
+
+  function toggleItem(item: ContextItem, index: number) {
+    const key = contextKey(item, index);
+    setToggledItems((prev) => ({
+      ...prev,
+      [key]: !isItemEnabled(item, index),
+    }));
+  }
+
+  const doDispatch = useCallback(
+    async (sessionId: string | undefined) => {
       if (!data) return;
 
-      const prompt = values.prompt?.trim();
-      if (!prompt) {
+      const text = prompt.trim();
+      if (!text) {
         await showToast({ style: Toast.Style.Failure, title: "Prompt is empty" });
         return;
       }
 
-      const sessionId = targetSessionRef.current;
-
-      const activeContext = (data.contextItems ?? []).filter(
-        (item, i) => values[contextKey(item, i)] === true,
-      );
-      const fullPrompt = buildPrompt(prompt, activeContext);
+      const activeContext = contextItems.filter((item, i) => isItemEnabled(item, i));
+      const fullPrompt = buildPrompt(text, activeContext);
       const filePaths = activeContext.filter((c) => c.type === "screenshot").map((c) => c.value);
 
       const toast = await showToast({ style: Toast.Style.Animated, title: "Dispatching..." });
@@ -59,17 +79,15 @@ export default function DispatchCommand() {
         server: data.server,
         sessionId,
         filePaths,
-        workingDirectory: data.projectDir || undefined,
+        workingDirectory: projectDir || undefined,
       });
 
       if (result.success) {
         toast.hide();
-
         const original = initialPromptRef.current;
-        if (original && original !== prompt) {
-          learnFromEdit(original, prompt, data.server).catch(() => {});
+        if (original && original !== text) {
+          learnFromEdit(original, text, data.server).catch(() => {});
         }
-
         await showHUD("Dispatched to OpenCode");
         await popToRoot();
       } else {
@@ -78,7 +96,8 @@ export default function DispatchCommand() {
         toast.message = result.error;
       }
     },
-  });
+    [data, prompt, contextItems, toggledItems, projectDir],
+  );
 
   if (error) {
     return (
@@ -97,72 +116,99 @@ export default function DispatchCommand() {
     );
   }
 
-  const sessions = data?.sessions ?? [];
-  const contextItems = data?.contextItems ?? [];
-  const projectDir = data?.projectDir;
-
-  function submitTo(sessionId: string | undefined) {
-    targetSessionRef.current = sessionId;
-    return handleSubmit;
+  function sessionActions() {
+    return (
+      <>
+        <Action
+          title="Send to New Session"
+          icon={Icon.Plus}
+          onAction={() => doDispatch(undefined)}
+        />
+        {sessions.length > 0 && (
+          <ActionPanel.Section title="Send to Session">
+            {sessions.map((s) => (
+              <Action
+                key={s.id}
+                title={`${s.name} · ${timeAgo(s.updatedAt)}`}
+                icon={Icon.Message}
+                onAction={() => doDispatch(s.id)}
+              />
+            ))}
+          </ActionPanel.Section>
+        )}
+      </>
+    );
   }
 
-  return (
-    <Form
-      isLoading={isLoading}
-      actions={
-        <ActionPanel>
-          <Action.SubmitForm
-            title="Send to New Session"
-            icon={Icon.Plus}
-            onSubmit={(values) => submitTo(undefined)(values as FormValues)}
-          />
-          {sessions.length > 0 && (
-            <ActionPanel.Section title="Send to Session">
-              {sessions.map((s) => (
-                <Action.SubmitForm
-                  key={s.id}
-                  title={`${s.name} · ${timeAgo(s.updatedAt)}`}
-                  icon={Icon.Message}
-                  onSubmit={(values) => submitTo(s.id)(values as FormValues)}
-                />
-              ))}
-            </ActionPanel.Section>
-          )}
-        </ActionPanel>
-      }
-    >
-      {projectDir && <Form.Description title="" text={`📂 ${abbreviateHome(projectDir)}`} />}
+  function detailMarkdown(item: ContextItem): string {
+    switch (item.type) {
+      case "screenshot":
+        return `![Screenshot](${item.value})`;
+      case "url":
+        return `### URL\n\n${item.value}`;
+      case "selectedText":
+        return `### Selected Text\n\n\`\`\`\n${item.value.slice(0, 1000)}\n\`\`\``;
+    }
+  }
 
-      {contextItems.length > 0 && (
-        <>
-          {contextItems.map((item, i) => (
-            <Form.Checkbox
-              key={contextKey(item, i)}
-              id={contextKey(item, i)}
-              title={i === 0 ? "Context" : ""}
-              label={item.label}
-              icon={contextIcon(item)}
-              defaultValue={item.defaultEnabled}
-              info={item.type === "selectedText" ? item.value.slice(0, 300) : undefined}
-            />
-          ))}
-          <Form.Separator />
-        </>
+  const hasContext = contextItems.length > 0;
+
+  return (
+    <List
+      isLoading={isLoading}
+      searchBarPlaceholder="What do you want your agent to do?"
+      onSearchTextChange={(text) => {
+        setPrompt(text);
+        if (initialPromptRef.current === null && text.trim().length > 0) {
+          initialPromptRef.current = text;
+        }
+      }}
+      filtering={false}
+      isShowingDetail={hasContext}
+    >
+      {hasContext && (
+        <List.Section title="Context" subtitle={projectDir ? abbreviateHome(projectDir) : undefined}>
+          {contextItems.map((item, i) => {
+            const enabled = isItemEnabled(item, i);
+            return (
+              <List.Item
+                key={contextKey(item, i)}
+                icon={contextListIcon(item)}
+                title={item.label}
+                accessories={[
+                  enabled
+                    ? { icon: { source: Icon.Checkmark, tintColor: Color.Green }, tooltip: "Included" }
+                    : { icon: { source: Icon.Circle, tintColor: Color.SecondaryText }, tooltip: "Excluded" },
+                ]}
+                detail={<List.Item.Detail markdown={detailMarkdown(item)} />}
+                actions={
+                  <ActionPanel>
+                    <Action
+                      title={enabled ? "Exclude from Prompt" : "Include in Prompt"}
+                      icon={enabled ? Icon.XMarkCircle : Icon.CheckCircle}
+                      onAction={() => toggleItem(item, i)}
+                    />
+                    {sessionActions()}
+                  </ActionPanel>
+                }
+              />
+            );
+          })}
+        </List.Section>
       )}
 
-      <Form.TextArea
-        {...itemProps.prompt}
-        title="Prompt"
-        placeholder="What do you want your agent to do?"
-        onChange={(text) => {
-          itemProps.prompt.onChange?.(text);
-          if (initialPromptRef.current === null && text.trim().length > 0) {
-            initialPromptRef.current = text;
+      {!hasContext && (
+        <List.EmptyView
+          title="No context detected"
+          description="Type your prompt above and press ⏎ to send"
+          actions={
+            <ActionPanel>
+              {sessionActions()}
+            </ActionPanel>
           }
-        }}
-        autoFocus
-      />
-    </Form>
+        />
+      )}
+    </List>
   );
 }
 
@@ -170,10 +216,13 @@ function contextKey(item: ContextItem, index: number): string {
   return `ctx-${item.type}-${index}`;
 }
 
-function contextIcon(item: ContextItem): Image.ImageLike {
+function contextListIcon(item: ContextItem): Icon {
   switch (item.type) {
-    case "screenshot": return { source: item.value, mask: Image.Mask.RoundedRectangle };
-    case "url": return Icon.Link;
-    case "selectedText": return Icon.TextCursor;
+    case "screenshot":
+      return Icon.Image;
+    case "url":
+      return Icon.Link;
+    case "selectedText":
+      return Icon.TextCursor;
   }
 }
