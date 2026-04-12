@@ -1,7 +1,4 @@
-import { execSync, execFile } from "child_process";
-import { promisify } from "util";
-
-const execFileAsync = promisify(execFile);
+import { execSync, spawn } from "child_process";
 
 export interface DiscoveredServer {
   host: string;
@@ -106,9 +103,8 @@ export async function dispatch(opts: {
   sessionId?: string;
   filePaths?: string[];
   workingDirectory?: string;
-  timeout?: number;
 }): Promise<{ success: boolean; error?: string }> {
-  const { prompt, server, sessionId, filePaths = [], workingDirectory, timeout = 30000 } = opts;
+  const { prompt, server, sessionId, filePaths = [], workingDirectory } = opts;
   const home = process.env.HOME ?? "";
   const opencodePath = server.cliPath || `${home}/.opencode/bin/opencode`;
 
@@ -128,21 +124,51 @@ export async function dispatch(opts: {
   console.log("[dispatch]", opencodePath, args.join(" "));
 
   try {
-    const { stdout, stderr } = await execFileAsync(opencodePath, args, {
+    // Fire-and-forget: opencode-cli with --attach streams output and doesn't exit
+    // until the agent finishes. Spawn detached and return immediately.
+    const child = spawn(opencodePath, args, {
       env,
       cwd: workingDirectory || undefined,
-      timeout,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    // Surface stderr even on exit 0 — the CLI may report issues without failing
-    if (stderr && stderr.trim()) {
-      console.error("[dispatch] stderr:", stderr.trim());
-    }
-    return { success: true };
+
+    // Collect early stderr in case it fails to start (bad path, auth error, etc.)
+    let stderr = "";
+    child.stderr?.on("data", (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    // Wait briefly for early failures (bad binary, auth rejection, etc.)
+    const launched = await new Promise<{ success: boolean; error?: string }>((resolve) => {
+      child.on("error", (err) => {
+        console.error("[dispatch] spawn error:", err.message);
+        resolve({ success: false, error: err.message });
+      });
+
+      // If the process exits quickly, it's an error
+      child.on("exit", (code) => {
+        if (code !== 0) {
+          const detail = stderr.trim() || `opencode-cli exited with code ${code}`;
+          console.error("[dispatch] early exit:", detail);
+          resolve({ success: false, error: detail });
+        }
+      });
+
+      // If still running after 2s, it launched successfully — detach and move on
+      setTimeout(() => {
+        child.unref();
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        resolve({ success: true });
+      }, 2000);
+    });
+
+    return launched;
   } catch (err: unknown) {
-    const error = err as Error & { stderr?: string; stdout?: string; code?: number };
-    const detail = error.stderr?.trim() || error.stdout?.trim() || error.message;
-    console.error("[dispatch] failed:", detail);
-    return { success: false, error: detail };
+    const error = err as Error;
+    console.error("[dispatch] failed:", error.message);
+    return { success: false, error: error.message };
   }
 }
 
