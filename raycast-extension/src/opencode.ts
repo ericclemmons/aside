@@ -1,4 +1,7 @@
-import { execSync, spawn } from "child_process";
+import { execSync, execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 
 export interface DiscoveredServer {
   host: string;
@@ -124,51 +127,20 @@ export async function dispatch(opts: {
   console.log("[dispatch]", opencodePath, args.join(" "));
 
   try {
-    // Fire-and-forget: opencode-cli with --attach streams output and doesn't exit
-    // until the agent finishes. Spawn detached and return immediately.
-    const child = spawn(opencodePath, args, {
+    const { stderr } = await execFileAsync(opencodePath, args, {
       env,
       cwd: workingDirectory || undefined,
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 30000,
     });
-
-    // Collect early stderr in case it fails to start (bad path, auth error, etc.)
-    let stderr = "";
-    child.stderr?.on("data", (data: Buffer) => {
-      stderr += data.toString();
-    });
-
-    // Wait briefly for early failures (bad binary, auth rejection, etc.)
-    const launched = await new Promise<{ success: boolean; error?: string }>((resolve) => {
-      child.on("error", (err) => {
-        console.error("[dispatch] spawn error:", err.message);
-        resolve({ success: false, error: err.message });
-      });
-
-      // If the process exits quickly, it's an error
-      child.on("exit", (code) => {
-        if (code !== 0) {
-          const detail = stderr.trim() || `opencode-cli exited with code ${code}`;
-          console.error("[dispatch] early exit:", detail);
-          resolve({ success: false, error: detail });
-        }
-      });
-
-      // If still running after 2s, it launched successfully — detach and move on
-      setTimeout(() => {
-        child.unref();
-        child.stdout?.destroy();
-        child.stderr?.destroy();
-        resolve({ success: true });
-      }, 2000);
-    });
-
-    return launched;
+    if (stderr?.trim()) {
+      console.error("[dispatch] stderr:", stderr.trim());
+    }
+    return { success: true };
   } catch (err: unknown) {
-    const error = err as Error;
-    console.error("[dispatch] failed:", error.message);
-    return { success: false, error: error.message };
+    const error = err as Error & { stderr?: string; stdout?: string };
+    const detail = error.stderr?.trim() || error.stdout?.trim() || error.message;
+    console.error("[dispatch] failed:", detail);
+    return { success: false, error: detail };
   }
 }
 
