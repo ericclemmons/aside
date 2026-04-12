@@ -42,7 +42,7 @@ export default function DispatchCommand() {
   });
 
   const contextItems = data?.contextItems ?? [];
-  const sessions = data?.sessions ?? [];
+  const sessions = (data?.sessions ?? []).filter((s) => s.directory && s.directory !== "/");
   const projectDir = data?.projectDir;
 
   function isItemEnabled(item: ContextItem, index: number): boolean {
@@ -79,7 +79,7 @@ export default function DispatchCommand() {
         server: data.server,
         sessionId,
         filePaths,
-        workingDirectory: projectDir || sessions[0]?.directory || process.env.HOME || "~",
+        workingDirectory: projectDir || sessions[0]?.directory,
       });
 
       if (result.success) {
