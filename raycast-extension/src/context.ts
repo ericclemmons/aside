@@ -5,7 +5,7 @@ import { join } from "path";
 import { getPreferenceValues } from "@raycast/api";
 
 export interface ContextItem {
-  type: "selectedText" | "url" | "screenshot";
+  type: "selectedText" | "url" | "screenshot" | "clipboard";
   label: string;
   value: string;
   /** Whether this item is checked by default */
@@ -31,6 +31,7 @@ export async function gatherContext(): Promise<ContextItem[]> {
 
   const results = await Promise.allSettled([
     captureSelectedText(clipboardText),
+    captureClipboardText(clipboardText),
     captureBrowserURL(),
     captureRecentScreenshots(),
   ]);
@@ -65,6 +66,17 @@ async function captureSelectedText(clipboardText: string | undefined): Promise<C
   } catch {
     return null;
   }
+}
+
+async function captureClipboardText(clipboardText: string | undefined): Promise<ContextItem | null> {
+  if (!clipboardText || clipboardText.trim().length === 0) return null;
+  const preview = clipboardText.length > 80 ? clipboardText.slice(0, 80) + "…" : clipboardText;
+  return {
+    type: "clipboard",
+    label: preview,
+    value: clipboardText,
+    defaultEnabled: false,
+  };
 }
 
 async function captureBrowserURL(): Promise<ContextItem | null> {
@@ -155,6 +167,7 @@ export function buildPrompt(text: string, contextItems: ContextItem[]): string {
     if (item.type === "url") {
       quoted.push(`> ${item.value}`);
     } else {
+      // selectedText and clipboard both inline as blockquote
       const lines = item.value.split("\n").map((line) => `> ${line}`);
       quoted.push(lines.join("\n"));
     }

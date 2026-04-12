@@ -120,8 +120,9 @@ export default function DispatchCommand() {
     return (
       <>
         <Action
-          title="Send to New Session"
+          title="New Session"
           icon={Icon.Plus}
+          shortcut={{ modifiers: ["cmd"], key: "return" }}
           onAction={() => doDispatch(undefined)}
         />
         {sessions.length > 0 && (
@@ -150,6 +151,8 @@ export default function DispatchCommand() {
         return `### URL\n\n${item.value}`;
       case "selectedText":
         return `### Selected Text\n\n\`\`\`\n${item.value.slice(0, 1000)}\n\`\`\``;
+      case "clipboard":
+        return `### Clipboard\n\n\`\`\`\n${item.value.slice(0, 1000)}\n\`\`\``;
     }
   }
 
@@ -185,13 +188,12 @@ export default function DispatchCommand() {
                 detail={<List.Item.Detail markdown={detailMarkdown(item)} />}
                 actions={
                   <ActionPanel>
-                    {sessionActions()}
                     <Action
                       title={enabled ? "Exclude from Prompt" : "Include in Prompt"}
                       icon={enabled ? Icon.XMarkCircle : Icon.CheckCircle}
-                      shortcut={{ modifiers: ["cmd"], key: "d" }}
                       onAction={() => toggleItem(item, i)}
                     />
+                    {sessionActions()}
                   </ActionPanel>
                 }
               />
@@ -227,5 +229,7 @@ function contextListIcon(item: ContextItem): Icon {
       return Icon.Link;
     case "selectedText":
       return Icon.TextCursor;
+    case "clipboard":
+      return Icon.Clipboard;
   }
 }
