@@ -72,11 +72,12 @@ export async function fetchSessions(server: DiscoveredServer): Promise<Session[]
     .filter((obj) => obj.id && !(obj.time as Record<string, unknown>)?.archived)
     .map((obj) => {
       const time = obj.time as Record<string, unknown> | undefined;
+      const dir = obj.directory as string | undefined;
       return {
         id: obj.id as string,
         name: (obj.title as string) || (obj.id as string),
         updatedAt: new Date(((time?.updated as number) || (time?.created as number) || 0)),
-        directory: obj.directory as string | undefined,
+        directory: dir && dir !== "/" ? dir : undefined,
       };
     })
     .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
