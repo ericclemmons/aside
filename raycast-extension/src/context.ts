@@ -55,10 +55,10 @@ async function captureSelectedText(clipboardText: string | undefined): Promise<C
     // Dedupe: if "selected text" is identical to clipboard, it's not actually selected
     if (clipboardText && text === clipboardText) return null;
 
-    const preview = text.length > 80 ? text.slice(0, 80) + "..." : text;
+    const preview = text.length > 80 ? text.slice(0, 80) + "…" : text;
     return {
       type: "selectedText",
-      label: `Selected text: "${preview}"`,
+      label: preview,
       value: text,
       defaultEnabled: true,
     };
@@ -94,7 +94,7 @@ async function captureBrowserURL(): Promise<ContextItem | null> {
     if (url && url.trim().length > 0 && url !== "missing value") {
       return {
         type: "url",
-        label: `URL: ${url}`,
+        label: url,
         value: url,
         defaultEnabled: true,
       };
@@ -132,7 +132,7 @@ async function captureRecentScreenshots(): Promise<ContextItem[]> {
       const agoStr = ago < 60 ? `${ago}s ago` : `${Math.floor(ago / 60)}m ago`;
       items.push({
         type: "screenshot",
-        label: `Screenshot (${agoStr}): ${s.name}`,
+        label: `Screenshot · ${agoStr}`,
         value: s.path,
         defaultEnabled: false,
       });

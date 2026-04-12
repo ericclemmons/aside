@@ -139,7 +139,9 @@ export default function DispatchCommand() {
             <Form.Checkbox
               key={contextKey(item, i)}
               id={contextKey(item, i)}
+              title={i === 0 ? "Context" : ""}
               label={item.label}
+              icon={contextIcon(item)}
               defaultValue={item.defaultEnabled}
             />
           ))}
@@ -165,4 +167,12 @@ export default function DispatchCommand() {
 
 function contextKey(item: ContextItem, index: number): string {
   return `ctx-${item.type}-${index}`;
+}
+
+function contextIcon(item: ContextItem): Icon {
+  switch (item.type) {
+    case "screenshot": return Icon.Image;
+    case "url": return Icon.Link;
+    case "selectedText": return Icon.TextCursor;
+  }
 }
