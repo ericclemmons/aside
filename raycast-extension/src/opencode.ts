@@ -118,7 +118,7 @@ export async function dispatch(opts: {
 
   args.push("run");
   for (const path of filePaths) args.push(`--file=${path}`);
-  args.push("--", prompt);
+  args.push("--", ...prompt.split(/\s+/).filter(Boolean));
 
   const env: Record<string, string> = { ...process.env } as Record<string, string>;
   env.PATH = `${home}/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:${env.PATH || ""}`;
