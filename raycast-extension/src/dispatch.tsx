@@ -161,7 +161,7 @@ export default function DispatchCommand() {
   return (
     <List
       isLoading={isLoading}
-      searchBarPlaceholder="Prompt..."
+      searchBarPlaceholder="Prompt…  ⌘↵ to send"
       onSearchTextChange={(text) => {
         setPrompt(text);
         if (initialPromptRef.current === null && text.trim().length > 0) {
@@ -202,35 +202,17 @@ export default function DispatchCommand() {
         </List.Section>
       )}
 
-      <List.Section title={hasContext ? "" : undefined}>
-        <List.Item
-          icon={Icon.Plus}
-          title="New Session"
-          subtitle="⌘ ↵"
-          detail={hasContext ? <List.Item.Detail markdown="Type a prompt and press **⌘↵** to dispatch to a new OpenCode session." /> : undefined}
+      {!hasContext && (
+        <List.EmptyView
+          title="No context detected"
+          description="Type a prompt and press ⌘↵ to send"
           actions={
             <ActionPanel>
-              <Action
-                title="New Session"
-                icon={Icon.Plus}
-                onAction={() => doDispatch(undefined)}
-              />
-              {sessions.length > 0 && (
-                <ActionPanel.Section title="Send to Session">
-                  {sessions.map((s) => (
-                    <Action
-                      key={s.id}
-                      title={`${s.name} · ${timeAgo(s.updatedAt)}`}
-                      icon={Icon.Message}
-                      onAction={() => doDispatch(s.id)}
-                    />
-                  ))}
-                </ActionPanel.Section>
-              )}
+              {sessionActions()}
             </ActionPanel>
           }
         />
-      </List.Section>
+      )}
     </List>
   );
 }
