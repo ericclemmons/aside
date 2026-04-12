@@ -100,7 +100,6 @@ export default function DispatchCommand() {
   const sessions = data?.sessions ?? [];
   const contextItems = data?.contextItems ?? [];
   const projectDir = data?.projectDir;
-  const recent = sessions[0];
 
   function submitTo(sessionId: string | undefined) {
     targetSessionRef.current = sessionId;
@@ -112,25 +111,17 @@ export default function DispatchCommand() {
       isLoading={isLoading}
       actions={
         <ActionPanel>
-          {recent && (
-            <Action.SubmitForm
-              title={`Send to ${recent.name}`}
-              icon={Icon.PaperAirplane}
-              onSubmit={(values) => submitTo(recent.id)(values as FormValues)}
-            />
-          )}
           <Action.SubmitForm
             title="Send to New Session"
             icon={Icon.Plus}
-            shortcut={{ modifiers: ["cmd"], key: "enter" }}
             onSubmit={(values) => submitTo(undefined)(values as FormValues)}
           />
-          {sessions.length > 1 && (
+          {sessions.length > 0 && (
             <ActionPanel.Section title="Send to Session">
-              {sessions.slice(1).map((s) => (
+              {sessions.map((s) => (
                 <Action.SubmitForm
                   key={s.id}
-                  title={s.name}
+                  title={`${s.name} · ${timeAgo(s.updatedAt)}`}
                   icon={Icon.Message}
                   onSubmit={(values) => submitTo(s.id)(values as FormValues)}
                 />
@@ -140,6 +131,22 @@ export default function DispatchCommand() {
         </ActionPanel>
       }
     >
+      {projectDir && <Form.Description title="" text={`📂 ${abbreviateHome(projectDir)}`} />}
+
+      {contextItems.length > 0 && (
+        <>
+          {contextItems.map((item, i) => (
+            <Form.Checkbox
+              key={contextKey(item, i)}
+              id={contextKey(item, i)}
+              label={item.label}
+              defaultValue={item.defaultEnabled}
+            />
+          ))}
+          <Form.Separator />
+        </>
+      )}
+
       <Form.TextArea
         {...itemProps.prompt}
         title="Prompt"
@@ -152,26 +159,6 @@ export default function DispatchCommand() {
         }}
         autoFocus
       />
-
-      {contextItems.length > 0 && <Form.Separator />}
-
-      {contextItems.map((item, i) => (
-        <Form.Checkbox
-          key={contextKey(item, i)}
-          id={contextKey(item, i)}
-          label={item.label}
-          defaultValue={item.defaultEnabled}
-        />
-      ))}
-
-      {(recent || projectDir) && <Form.Separator />}
-      {recent && (
-        <Form.Description
-          title="Session"
-          text={`${recent.name} · ${timeAgo(recent.updatedAt)}`}
-        />
-      )}
-      {projectDir && <Form.Description title="Project" text={abbreviateHome(projectDir)} />}
     </Form>
   );
 }
