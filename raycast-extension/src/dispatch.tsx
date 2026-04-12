@@ -79,7 +79,7 @@ export default function DispatchCommand() {
         server: data.server,
         sessionId,
         filePaths,
-        workingDirectory: projectDir || sessions[0]?.directory || undefined,
+        workingDirectory: projectDir || sessions[0]?.directory || process.env.HOME || "~",
       });
 
       if (result.success) {
