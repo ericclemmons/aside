@@ -125,12 +125,24 @@ export async function dispatch(opts: {
   if (server.username) env.OPENCODE_SERVER_USERNAME = server.username;
   if (server.password) env.OPENCODE_SERVER_PASSWORD = server.password;
 
+  console.log("[dispatch]", opencodePath, args.join(" "));
+
   try {
-    await execFileAsync(opencodePath, args, { env, cwd: workingDirectory || undefined, timeout });
+    const { stdout, stderr } = await execFileAsync(opencodePath, args, {
+      env,
+      cwd: workingDirectory || undefined,
+      timeout,
+    });
+    // Surface stderr even on exit 0 — the CLI may report issues without failing
+    if (stderr && stderr.trim()) {
+      console.error("[dispatch] stderr:", stderr.trim());
+    }
     return { success: true };
   } catch (err: unknown) {
-    const error = err as Error & { stderr?: string };
-    return { success: false, error: error.stderr || error.message };
+    const error = err as Error & { stderr?: string; stdout?: string; code?: number };
+    const detail = error.stderr?.trim() || error.stdout?.trim() || error.message;
+    console.error("[dispatch] failed:", detail);
+    return { success: false, error: detail };
   }
 }
 
