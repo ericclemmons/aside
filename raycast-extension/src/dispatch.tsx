@@ -1,4 +1,4 @@
-import { Form, ActionPanel, Action, Detail, showHUD, showToast, Toast, Icon, popToRoot } from "@raycast/api";
+import { Form, ActionPanel, Action, Detail, showHUD, showToast, Toast, Icon, Image, popToRoot } from "@raycast/api";
 import { useForm, usePromise } from "@raycast/utils";
 import { useRef } from "react";
 import {
@@ -143,6 +143,7 @@ export default function DispatchCommand() {
               label={item.label}
               icon={contextIcon(item)}
               defaultValue={item.defaultEnabled}
+              info={item.type === "selectedText" ? item.value.slice(0, 300) : undefined}
             />
           ))}
           <Form.Separator />
@@ -169,9 +170,9 @@ function contextKey(item: ContextItem, index: number): string {
   return `ctx-${item.type}-${index}`;
 }
 
-function contextIcon(item: ContextItem): Icon {
+function contextIcon(item: ContextItem): Image.ImageLike {
   switch (item.type) {
-    case "screenshot": return Icon.Image;
+    case "screenshot": return { source: item.value, mask: Image.Mask.RoundedRectangle };
     case "url": return Icon.Link;
     case "selectedText": return Icon.TextCursor;
   }
