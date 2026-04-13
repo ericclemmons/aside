@@ -164,11 +164,11 @@ export default function DispatchCommand() {
         return `![Screenshot](${encoded})`;
       }
       case "url":
-        return `### URL\n\n${item.value}`;
+        return item.value;
       case "selectedText":
-        return `### Selected Text\n\n\`\`\`\n${item.value.slice(0, 1000)}\n\`\`\``;
+        return `\`\`\`\n${item.value.slice(0, 1000)}\n\`\`\``;
       case "clipboard":
-        return `### Clipboard\n\n\`\`\`\n${item.value.slice(0, 1000)}\n\`\`\``;
+        return `\`\`\`\n${item.value.slice(0, 1000)}\n\`\`\``;
     }
   }
 
@@ -204,12 +204,12 @@ export default function DispatchCommand() {
                 detail={<List.Item.Detail markdown={detailMarkdown(item)} />}
                 actions={
                   <ActionPanel>
+                    {sessionActions()}
                     <Action
                       title={enabled ? "Exclude from Prompt" : "Include in Prompt"}
                       icon={enabled ? Icon.XMarkCircle : Icon.CheckCircle}
                       onAction={() => toggleItem(item, i)}
                     />
-                    {sessionActions()}
                   </ActionPanel>
                 }
               />
