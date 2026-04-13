@@ -3,6 +3,7 @@ import {
   ActionPanel,
   Action,
   Detail,
+  Form,
   showHUD,
   showToast,
   Toast,
@@ -10,6 +11,7 @@ import {
   closeMainWindow,
   Color,
   Keyboard,
+  useNavigation,
 } from "@raycast/api";
 import { usePromise } from "@raycast/utils";
 import { useState, useCallback, useRef } from "react";
@@ -39,6 +41,7 @@ export default function DispatchCommand() {
   const [prompt, setPrompt] = useState("");
   const initialPromptRef = useRef<string | null>(null);
   const [toggledItems, setToggledItems] = useState<Record<string, boolean>>({});
+  const [extraFiles, setExtraFiles] = useState<string[]>([]);
 
   const { data, isLoading, error } = usePromise(async () => {
     const server = discoverServer();
@@ -55,13 +58,24 @@ export default function DispatchCommand() {
   });
 
   const contextItems = data?.contextItems ?? [];
+  // Merge auto-detected context with manually attached files
+  const allContextItems: ContextItem[] = [
+    ...contextItems,
+    ...extraFiles.map((f): ContextItem => ({
+      type: "screenshot",
+      label: f.split("/").pop() || f,
+      value: f,
+      defaultEnabled: true,
+    })),
+  ];
+
   const sessions = (data?.sessions ?? []).filter((s) => s.directory && s.directory !== "/");
   const projectDir = data?.projectDir;
   const recentProjects = data?.recentProjects ?? [];
   const defaultWorkDir = projectDir || recentProjects[0] || sessions[0]?.directory;
   const workspaceDirs = mergeWorkspaces(recentProjects, sessions);
 
-  // Build ordered dispatch targets: new session in latest workspace, then recent sessions, then other workspaces
+  // Build ordered dispatch targets
   const targets: DispatchTarget[] = [];
   if (defaultWorkDir) {
     targets.push({
@@ -100,6 +114,8 @@ export default function DispatchCommand() {
     }));
   }
 
+  const enabledCount = allContextItems.filter((item, i) => isItemEnabled(item, i)).length;
+
   const doDispatch = useCallback(
     async (sessionId: string | undefined, workDirOverride?: string) => {
       if (!data) return;
@@ -110,7 +126,7 @@ export default function DispatchCommand() {
         return;
       }
 
-      const activeContext = contextItems.filter((item, i) => isItemEnabled(item, i));
+      const activeContext = allContextItems.filter((item, i) => isItemEnabled(item, i));
       const fullPrompt = buildPrompt(text, activeContext);
       const filePaths = activeContext.filter((c) => c.type === "screenshot").map((c) => c.value);
 
@@ -135,7 +151,7 @@ export default function DispatchCommand() {
         }
       });
     },
-    [data, prompt, contextItems, toggledItems, defaultWorkDir],
+    [data, prompt, allContextItems, toggledItems, defaultWorkDir],
   );
 
   function dispatchTarget(t: DispatchTarget) {
@@ -159,7 +175,7 @@ export default function DispatchCommand() {
     );
   }
 
-  /** Actions available on every item — dispatch targets with Cmd+1-9 shortcuts */
+  /** Dispatch target actions with Cmd+1-9 shortcuts */
   function dispatchActions() {
     return (
       <ActionPanel.Section title="Send to…">
@@ -176,27 +192,14 @@ export default function DispatchCommand() {
     );
   }
 
-  function detailMarkdown(item: ContextItem): string {
-    switch (item.type) {
-      case "screenshot": {
-        const encoded = encodeURI(`file://${item.value}`);
-        return `![Screenshot](${encoded})`;
-      }
-      case "url":
-        return item.value;
-      case "selectedText":
-        return `\`\`\`\n${item.value.slice(0, 1000)}\n\`\`\``;
-      case "clipboard":
-        return `\`\`\`\n${item.value.slice(0, 1000)}\n\`\`\``;
-    }
-  }
-
-  const hasContext = contextItems.length > 0;
+  const contextSummary = allContextItems.length === 0
+    ? "No context"
+    : `${enabledCount} of ${allContextItems.length} items attached`;
 
   // Build hint string for placeholder
   const hint = targets.length > 0
-    ? `↵ toggle · ⌘1 ${targets[0].label.split(" in ").pop() || "send"}`
-    : "↵ toggle";
+    ? `⌘1 ${targets[0].label.split(" in ").pop() || "send"}`
+    : "";
 
   return (
     <List
@@ -209,41 +212,39 @@ export default function DispatchCommand() {
         }
       }}
       filtering={false}
-      isShowingDetail={hasContext}
     >
-      {/* Context section */}
-      {hasContext && contextSections(contextItems).map(([sectionTitle, items]) => (
-        <List.Section key={sectionTitle} title={sectionTitle}>
-          {items.map(([item, i]) => {
-            const enabled = isItemEnabled(item, i);
-            return (
-              <List.Item
-                key={contextKey(item, i)}
-                icon={contextListIcon(item)}
-                title={item.label}
-                accessories={[
-                  enabled
-                    ? { icon: { source: Icon.Checkmark, tintColor: Color.Green }, tooltip: "Included" }
-                    : { icon: { source: Icon.Circle, tintColor: Color.SecondaryText }, tooltip: "Excluded" },
-                ]}
-                detail={<List.Item.Detail markdown={detailMarkdown(item)} />}
-                actions={
-                  <ActionPanel>
-                    <Action
-                      title={enabled ? "Exclude from Prompt" : "Include in Prompt"}
-                      icon={enabled ? Icon.XMarkCircle : Icon.CheckCircle}
-                      onAction={() => toggleItem(item, i)}
-                    />
-                    {dispatchActions()}
-                  </ActionPanel>
+      {/* Context summary — pushes to detail view */}
+      <List.Section title="Context">
+        <List.Item
+          icon={Icon.Paperclip}
+          title={contextSummary}
+          accessories={allContextItems.slice(0, 4).map((item) => ({
+            icon: contextListIcon(item),
+            tooltip: item.label,
+          }))}
+          actions={
+            <ActionPanel>
+              <Action.Push
+                title="Manage Context"
+                icon={Icon.Pencil}
+                target={
+                  <ContextEditor
+                    items={allContextItems}
+                    toggledItems={toggledItems}
+                    onToggle={toggleItem}
+                    onAddFiles={(files) => setExtraFiles((prev) => [...prev, ...files])}
+                    onRemoveFile={(path) => setExtraFiles((prev) => prev.filter((f) => f !== path))}
+                    dispatchActions={dispatchActions}
+                  />
                 }
               />
-            );
-          })}
-        </List.Section>
-      ))}
+              {dispatchActions()}
+            </ActionPanel>
+          }
+        />
+      </List.Section>
 
-      {/* Dispatch targets section — always visible */}
+      {/* Dispatch targets */}
       <List.Section title="Send to…">
         {targets.map((t, idx) => (
           <List.Item
@@ -265,13 +266,161 @@ export default function DispatchCommand() {
         ))}
       </List.Section>
 
-      {!hasContext && targets.length === 0 && (
+      {targets.length === 0 && allContextItems.length === 0 && (
         <List.EmptyView
           title="No context or sessions"
-          description="Type a prompt and press Enter to send"
+          description="Type a prompt and press ⌘1 to send"
         />
       )}
     </List>
+  );
+}
+
+/** Sub-view for managing context items and attaching files */
+function ContextEditor(props: {
+  items: ContextItem[];
+  toggledItems: Record<string, boolean>;
+  onToggle: (item: ContextItem, index: number) => void;
+  onAddFiles: (files: string[]) => void;
+  onRemoveFile: (path: string) => void;
+  dispatchActions: () => JSX.Element;
+}) {
+  const { pop } = useNavigation();
+
+  function isEnabled(item: ContextItem, index: number): boolean {
+    const key = contextKey(item, index);
+    return key in props.toggledItems ? props.toggledItems[key] : item.defaultEnabled;
+  }
+
+  function detailMarkdown(item: ContextItem): string {
+    switch (item.type) {
+      case "screenshot": {
+        const encoded = encodeURI(`file://${item.value}`);
+        return `![Screenshot](${encoded})`;
+      }
+      case "url":
+        return item.value;
+      case "selectedText":
+        return `\`\`\`\n${item.value.slice(0, 1000)}\n\`\`\``;
+      case "clipboard":
+        return `\`\`\`\n${item.value.slice(0, 1000)}\n\`\`\``;
+    }
+  }
+
+  return (
+    <List
+      navigationTitle="Context"
+      isShowingDetail={props.items.length > 0}
+    >
+      {contextSections(props.items).map(([sectionTitle, items]) => (
+        <List.Section key={sectionTitle} title={sectionTitle}>
+          {items.map(([item, i]) => {
+            const enabled = isEnabled(item, i);
+            return (
+              <List.Item
+                key={contextKey(item, i)}
+                icon={contextListIcon(item)}
+                title={item.label}
+                accessories={[
+                  enabled
+                    ? { icon: { source: Icon.Checkmark, tintColor: Color.Green }, tooltip: "Included" }
+                    : { icon: { source: Icon.Circle, tintColor: Color.SecondaryText }, tooltip: "Excluded" },
+                ]}
+                detail={<List.Item.Detail markdown={detailMarkdown(item)} />}
+                actions={
+                  <ActionPanel>
+                    <Action
+                      title={enabled ? "Exclude from Prompt" : "Include in Prompt"}
+                      icon={enabled ? Icon.XMarkCircle : Icon.CheckCircle}
+                      onAction={() => props.onToggle(item, i)}
+                    />
+                    <Action
+                      title="Done"
+                      icon={Icon.ArrowLeft}
+                      shortcut={{ modifiers: ["cmd"], key: "." }}
+                      onAction={pop}
+                    />
+                    <Action.Push
+                      title="Attach Files…"
+                      icon={Icon.Plus}
+                      shortcut={{ modifiers: ["cmd", "shift"], key: "a" }}
+                      target={
+                        <FilePickerForm
+                          onSubmit={(files) => {
+                            props.onAddFiles(files);
+                          }}
+                        />
+                      }
+                    />
+                    {props.dispatchActions()}
+                  </ActionPanel>
+                }
+              />
+            );
+          })}
+        </List.Section>
+      ))}
+
+      {props.items.length === 0 && (
+        <List.EmptyView
+          title="No context detected"
+          description="Attach files with ⌘⇧A"
+          actions={
+            <ActionPanel>
+              <Action.Push
+                title="Attach Files…"
+                icon={Icon.Plus}
+                shortcut={{ modifiers: ["cmd", "shift"], key: "a" }}
+                target={
+                  <FilePickerForm
+                    onSubmit={(files) => {
+                      props.onAddFiles(files);
+                    }}
+                  />
+                }
+              />
+              <Action
+                title="Done"
+                icon={Icon.ArrowLeft}
+                onAction={pop}
+              />
+            </ActionPanel>
+          }
+        />
+      )}
+    </List>
+  );
+}
+
+/** Form view for picking files to attach */
+function FilePickerForm(props: { onSubmit: (files: string[]) => void }) {
+  const { pop } = useNavigation();
+
+  return (
+    <Form
+      navigationTitle="Attach Files"
+      actions={
+        <ActionPanel>
+          <Action.SubmitForm
+            title="Attach"
+            icon={Icon.Plus}
+            onSubmit={(values) => {
+              const files = (values.files as string[]) || [];
+              if (files.length > 0) {
+                props.onSubmit(files);
+              }
+              pop();
+            }}
+          />
+        </ActionPanel>
+      }
+    >
+      <Form.FilePicker
+        id="files"
+        title="Files"
+        allowMultipleSelection
+      />
+    </Form>
   );
 }
 
