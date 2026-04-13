@@ -57,10 +57,14 @@ export default function DispatchCommand() {
   });
 
   const contextItems = data?.contextItems ?? [];
-  // Merge auto-detected context with manually attached files
+  // Split context: text items (checkboxes) vs file items (file picker)
+  const textContextItems = contextItems.filter((c) => c.type !== "screenshot");
+  const autoScreenshots = contextItems.filter((c) => c.type === "screenshot" && c.defaultEnabled).map((c) => c.value);
+  const allFiles = [...new Set([...autoScreenshots, ...extraFiles])];
+  // Combined for counting and dispatch
   const allContextItems: ContextItem[] = [
-    ...contextItems,
-    ...extraFiles.map((f): ContextItem => ({
+    ...textContextItems,
+    ...allFiles.map((f): ContextItem => ({
       type: "screenshot",
       label: f.split("/").pop() || f,
       value: f,
@@ -220,10 +224,13 @@ export default function DispatchCommand() {
                 icon={Icon.Pencil}
                 target={
                   <ContextEditor
-                    items={allContextItems}
+                    textItems={textContextItems}
+                    defaultFiles={allFiles}
                     toggledItems={toggledItems}
-                    onSetToggles={(toggles) => setToggledItems(toggles)}
-                    onAddFiles={(files) => setExtraFiles((prev) => [...prev, ...files])}
+                    onSubmit={(toggles, files) => {
+                      setToggledItems(toggles);
+                      setExtraFiles(files);
+                    }}
                     dispatchActions={dispatchActions}
                   />
                 }
@@ -241,7 +248,7 @@ export default function DispatchCommand() {
             key={`target-${idx}`}
             icon={t.icon}
             title={t.label}
-            accessories={idx < NUM_KEYS.length ? [{ tag: `⌘${NUM_KEYS[idx]}` }] : []}
+            accessories={[]}
             actions={
               <ActionPanel>
                 <Action
@@ -268,10 +275,10 @@ export default function DispatchCommand() {
 
 /** Form-based context editor with file picker and checkboxes */
 function ContextEditor(props: {
-  items: ContextItem[];
+  textItems: ContextItem[];
+  defaultFiles: string[];
   toggledItems: Record<string, boolean>;
-  onSetToggles: (toggles: Record<string, boolean>) => void;
-  onAddFiles: (files: string[]) => void;
+  onSubmit: (toggles: Record<string, boolean>, files: string[]) => void;
   dispatchActions: () => JSX.Element;
 }) {
   const { pop } = useNavigation();
@@ -279,18 +286,6 @@ function ContextEditor(props: {
   function defaultEnabled(item: ContextItem, index: number): boolean {
     const key = contextKey(item, index);
     return key in props.toggledItems ? props.toggledItems[key] : item.defaultEnabled;
-  }
-
-  /** Read all checkbox values from form and sync back to parent */
-  function syncToggles(values: Record<string, unknown>) {
-    const toggles: Record<string, boolean> = {};
-    for (let i = 0; i < props.items.length; i++) {
-      const key = contextKey(props.items[i], i);
-      if (key in values) {
-        toggles[key] = values[key] as boolean;
-      }
-    }
-    props.onSetToggles(toggles);
   }
 
   return (
@@ -302,9 +297,13 @@ function ContextEditor(props: {
             title="Done"
             icon={Icon.ArrowLeft}
             onSubmit={(values) => {
-              syncToggles(values);
-              const files = (values.attachments as string[]) || [];
-              if (files.length > 0) props.onAddFiles(files);
+              const toggles: Record<string, boolean> = {};
+              for (let i = 0; i < props.textItems.length; i++) {
+                const key = contextKey(props.textItems[i], i);
+                if (key in values) toggles[key] = values[key] as boolean;
+              }
+              const files = (values.files as string[]) || [];
+              props.onSubmit(toggles, files);
               pop();
             }}
           />
@@ -313,12 +312,13 @@ function ContextEditor(props: {
       }
     >
       <Form.FilePicker
-        id="attachments"
-        title="Attach Files"
+        id="files"
+        title="Files"
         allowMultipleSelection
+        defaultValue={props.defaultFiles}
       />
-      {props.items.length > 0 && <Form.Separator />}
-      {props.items.map((item, i) => (
+      {props.textItems.length > 0 && <Form.Separator />}
+      {props.textItems.map((item, i) => (
         <Form.Checkbox
           key={contextKey(item, i)}
           id={contextKey(item, i)}
