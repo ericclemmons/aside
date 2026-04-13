@@ -75,31 +75,26 @@ export default function DispatchCommand() {
       const workingDirectory = workDirOverride || projectDir || sessions[0]?.directory;
       const dest = abbreviateHome(workingDirectory || "~");
 
-      // Close immediately, show toast in background
-      await closeMainWindow();
-      const toast = await showToast({ style: Toast.Style.Animated, title: `Dispatching to ${dest}…` });
+      await closeMainWindow({ clearRootSearch: true });
+      await showHUD(`Dispatching to ${dest}…`);
 
-      // Dispatch in background, update toast on completion
-      dispatchToOpenCode({
+      const result = await dispatchToOpenCode({
         prompt: fullPrompt,
         server: data.server,
         sessionId,
         filePaths,
         workingDirectory,
-      }).then(async (result) => {
-        if (result.success) {
-          toast.style = Toast.Style.Success;
-          toast.title = `Dispatched to ${dest}`;
-          const original = initialPromptRef.current;
-          if (original && original !== text) {
-            learnFromEdit(original, text, data.server).catch(() => {});
-          }
-        } else {
-          toast.style = Toast.Style.Failure;
-          toast.title = "Dispatch Failed";
-          toast.message = result.error;
-        }
       });
+
+      if (result.success) {
+        await showHUD(`✓ Dispatched to ${dest}`);
+        const original = initialPromptRef.current;
+        if (original && original !== text) {
+          learnFromEdit(original, text, data.server).catch(() => {});
+        }
+      } else {
+        await showHUD(`✗ Dispatch failed: ${result.error?.slice(0, 80)}`);
+      }
     },
     [data, prompt, contextItems, toggledItems, projectDir],
   );
