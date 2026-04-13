@@ -15,6 +15,7 @@ import { useState, useCallback, useRef } from "react";
 import {
   discoverServer,
   fetchSessions,
+  readOpenProjects,
   fetchProjectDirectory,
   dispatch as dispatchToOpenCode,
   abbreviateHome,
@@ -32,18 +33,22 @@ export default function DispatchCommand() {
     const server = discoverServer();
     if (!server) throw new Error("not_found");
 
+    const openProjects = readOpenProjects();
     const [sessions, projectDir, contextItems] = await Promise.all([
       fetchSessions(server),
       fetchProjectDirectory(server),
       gatherContext(),
     ]);
 
-    return { server, sessions, projectDir, contextItems };
+    return { server, sessions, openProjects, projectDir, contextItems };
   });
 
   const contextItems = data?.contextItems ?? [];
   const sessions = (data?.sessions ?? []).filter((s) => s.directory && s.directory !== "/");
   const projectDir = data?.projectDir;
+  const openProjects = data?.openProjects ?? [];
+  const defaultWorkDir = projectDir || openProjects[0] || sessions[0]?.directory;
+  const workspaceDirs = uniqueWorkspacesFromOpenProjects(openProjects, sessions);
 
   function isItemEnabled(item: ContextItem, index: number): boolean {
     const key = contextKey(item, index);
@@ -72,7 +77,7 @@ export default function DispatchCommand() {
       const fullPrompt = buildPrompt(text, activeContext);
       const filePaths = activeContext.filter((c) => c.type === "screenshot").map((c) => c.value);
 
-      const workingDirectory = workDirOverride || projectDir || sessions[0]?.directory;
+      const workingDirectory = workDirOverride || defaultWorkDir;
       const dest = abbreviateHome(workingDirectory || "~");
 
       await closeMainWindow({ clearRootSearch: true });
@@ -94,7 +99,7 @@ export default function DispatchCommand() {
         }
       });
     },
-    [data, prompt, contextItems, toggledItems, projectDir],
+    [data, prompt, contextItems, toggledItems, defaultWorkDir],
   );
 
   if (error) {
@@ -113,9 +118,6 @@ export default function DispatchCommand() {
       />
     );
   }
-
-  const defaultWorkDir = projectDir || sessions[0]?.directory;
-  const workspaceDirs = uniqueWorkspaces(sessions);
 
   function sessionActions() {
     return (
@@ -203,12 +205,12 @@ export default function DispatchCommand() {
                 detail={<List.Item.Detail markdown={detailMarkdown(item)} />}
                 actions={
                   <ActionPanel>
-                    {sessionActions()}
                     <Action
                       title={enabled ? "Exclude from Prompt" : "Include in Prompt"}
                       icon={enabled ? Icon.XMarkCircle : Icon.CheckCircle}
                       onAction={() => toggleItem(item, i)}
                     />
+                    {sessionActions()}
                   </ActionPanel>
                 }
               />
@@ -236,10 +238,19 @@ function contextKey(item: ContextItem, index: number): string {
   return `ctx-${item.type}-${index}`;
 }
 
-/** Unique workspace directories from sessions, ordered by most recent */
-function uniqueWorkspaces(sessions: { directory?: string }[]): string[] {
+/** Unique workspace directories from open projects (sidebar) and sessions (fallback) */
+function uniqueWorkspacesFromOpenProjects(
+  openProjects: string[],
+  sessions: { directory?: string }[],
+): string[] {
   const seen = new Set<string>();
   const dirs: string[] = [];
+  for (const dir of openProjects) {
+    if (!seen.has(dir)) {
+      seen.add(dir);
+      dirs.push(dir);
+    }
+  }
   for (const s of sessions) {
     if (s.directory && !seen.has(s.directory)) {
       seen.add(s.directory);

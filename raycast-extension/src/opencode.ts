@@ -1,4 +1,5 @@
 import { execSync, spawn } from "child_process";
+import { readFileSync } from "fs";
 
 export interface DiscoveredServer {
   host: string;
@@ -82,12 +83,33 @@ export async function fetchSessions(server: DiscoveredServer): Promise<Session[]
     .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 }
 
+/**
+ * Read the "open projects" list from OpenCode Desktop's local state.
+ * This matches exactly what appears in the desktop sidebar.
+ */
+export function readOpenProjects(): string[] {
+  try {
+    const home = process.env.HOME || "";
+    const datPath = `${home}/Library/Application Support/ai.opencode.desktop/opencode.global.dat`;
+    const raw = readFileSync(datPath, "utf-8");
+    const dat = JSON.parse(raw) as Record<string, unknown>;
+    const server = typeof dat.server === "string" ? JSON.parse(dat.server) : dat.server;
+    const projects = (server as Record<string, unknown>)?.projects as Record<string, unknown[]> | undefined;
+    // "local" key holds the sidecar server's open projects
+    const localProjects = (projects?.local ?? []) as Array<{ worktree?: string }>;
+    return localProjects.map((p) => p.worktree).filter((w): w is string => !!w);
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchProjectDirectory(server: DiscoveredServer): Promise<string | null> {
   try {
     const response = await fetch(`${baseURL(server)}/project/current`, { headers: authHeaders(server) });
     if (!response.ok) return null;
     const json = (await response.json()) as Record<string, unknown>;
-    return (json.path as string) || null;
+    const worktree = json.worktree as string | undefined;
+    return worktree && worktree !== "/" ? worktree : null;
   } catch {
     return null;
   }
