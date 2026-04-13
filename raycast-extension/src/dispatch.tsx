@@ -76,7 +76,7 @@ export default function DispatchCommand() {
       const dest = abbreviateHome(workingDirectory || "~");
 
       await closeMainWindow({ clearRootSearch: true });
-      await showHUD(`Dispatching to ${dest}…`);
+      const toast = await showToast({ style: Toast.Style.Animated, title: `Dispatching to ${dest}…` });
 
       const result = await dispatchToOpenCode({
         prompt: fullPrompt,
@@ -87,13 +87,16 @@ export default function DispatchCommand() {
       });
 
       if (result.success) {
-        await showHUD(`✓ Dispatched to ${dest}`);
+        toast.style = Toast.Style.Success;
+        toast.title = `Dispatched to ${dest}`;
         const original = initialPromptRef.current;
         if (original && original !== text) {
           learnFromEdit(original, text, data.server).catch(() => {});
         }
       } else {
-        await showHUD(`✗ Dispatch failed: ${result.error?.slice(0, 80)}`);
+        toast.style = Toast.Style.Failure;
+        toast.title = "Dispatch Failed";
+        toast.message = result.error;
       }
     },
     [data, prompt, contextItems, toggledItems, projectDir],
