@@ -9,7 +9,6 @@ import {
   Toast,
   Icon,
   closeMainWindow,
-  Color,
   Keyboard,
   useNavigation,
 } from "@raycast/api";
@@ -233,7 +232,6 @@ export default function DispatchCommand() {
                     toggledItems={toggledItems}
                     onToggle={toggleItem}
                     onAddFiles={(files) => setExtraFiles((prev) => [...prev, ...files])}
-                    onRemoveFile={(path) => setExtraFiles((prev) => prev.filter((f) => f !== path))}
                     dispatchActions={dispatchActions}
                   />
                 }
@@ -276,13 +274,12 @@ export default function DispatchCommand() {
   );
 }
 
-/** Sub-view for managing context items and attaching files */
+/** Form-based context editor with file picker and checkboxes */
 function ContextEditor(props: {
   items: ContextItem[];
   toggledItems: Record<string, boolean>;
   onToggle: (item: ContextItem, index: number) => void;
   onAddFiles: (files: string[]) => void;
-  onRemoveFile: (path: string) => void;
   dispatchActions: () => JSX.Element;
 }) {
   const { pop } = useNavigation();
@@ -292,134 +289,36 @@ function ContextEditor(props: {
     return key in props.toggledItems ? props.toggledItems[key] : item.defaultEnabled;
   }
 
-  function detailMarkdown(item: ContextItem): string {
-    switch (item.type) {
-      case "screenshot": {
-        const encoded = encodeURI(`file://${item.value}`);
-        return `![Screenshot](${encoded})`;
-      }
-      case "url":
-        return item.value;
-      case "selectedText":
-        return `\`\`\`\n${item.value.slice(0, 1000)}\n\`\`\``;
-      case "clipboard":
-        return `\`\`\`\n${item.value.slice(0, 1000)}\n\`\`\``;
-    }
-  }
-
-  return (
-    <List
-      navigationTitle="Context"
-      isShowingDetail={props.items.length > 0}
-    >
-      {contextSections(props.items).map(([sectionTitle, items]) => (
-        <List.Section key={sectionTitle} title={sectionTitle}>
-          {items.map(([item, i]) => {
-            const enabled = isEnabled(item, i);
-            return (
-              <List.Item
-                key={contextKey(item, i)}
-                icon={contextListIcon(item)}
-                title={item.label}
-                accessories={[
-                  enabled
-                    ? { icon: { source: Icon.Checkmark, tintColor: Color.Green }, tooltip: "Included" }
-                    : { icon: { source: Icon.Circle, tintColor: Color.SecondaryText }, tooltip: "Excluded" },
-                ]}
-                detail={<List.Item.Detail markdown={detailMarkdown(item)} />}
-                actions={
-                  <ActionPanel>
-                    <Action
-                      title={enabled ? "Exclude from Prompt" : "Include in Prompt"}
-                      icon={enabled ? Icon.XMarkCircle : Icon.CheckCircle}
-                      onAction={() => props.onToggle(item, i)}
-                    />
-                    <Action
-                      title="Done"
-                      icon={Icon.ArrowLeft}
-                      shortcut={{ modifiers: ["cmd"], key: "." }}
-                      onAction={pop}
-                    />
-                    <Action.Push
-                      title="Attach Files…"
-                      icon={Icon.Plus}
-                      shortcut={{ modifiers: ["cmd", "shift"], key: "a" }}
-                      target={
-                        <FilePickerForm
-                          onSubmit={(files) => {
-                            props.onAddFiles(files);
-                          }}
-                        />
-                      }
-                    />
-                    {props.dispatchActions()}
-                  </ActionPanel>
-                }
-              />
-            );
-          })}
-        </List.Section>
-      ))}
-
-      {props.items.length === 0 && (
-        <List.EmptyView
-          title="No context detected"
-          description="Attach files with ⌘⇧A"
-          actions={
-            <ActionPanel>
-              <Action.Push
-                title="Attach Files…"
-                icon={Icon.Plus}
-                shortcut={{ modifiers: ["cmd", "shift"], key: "a" }}
-                target={
-                  <FilePickerForm
-                    onSubmit={(files) => {
-                      props.onAddFiles(files);
-                    }}
-                  />
-                }
-              />
-              <Action
-                title="Done"
-                icon={Icon.ArrowLeft}
-                onAction={pop}
-              />
-            </ActionPanel>
-          }
-        />
-      )}
-    </List>
-  );
-}
-
-/** Form view for picking files to attach */
-function FilePickerForm(props: { onSubmit: (files: string[]) => void }) {
-  const { pop } = useNavigation();
-
   return (
     <Form
-      navigationTitle="Attach Files"
+      navigationTitle="Context"
       actions={
         <ActionPanel>
-          <Action.SubmitForm
-            title="Attach"
-            icon={Icon.Plus}
-            onSubmit={(values) => {
-              const files = (values.files as string[]) || [];
-              if (files.length > 0) {
-                props.onSubmit(files);
-              }
-              pop();
-            }}
-          />
+          <Action title="Done" icon={Icon.ArrowLeft} onAction={pop} />
+          {props.dispatchActions()}
         </ActionPanel>
       }
     >
       <Form.FilePicker
-        id="files"
-        title="Files"
+        id="attachments"
+        title="Attach Files"
         allowMultipleSelection
+        onChange={(files) => {
+          if (files.length > 0) {
+            props.onAddFiles(files);
+          }
+        }}
       />
+      {props.items.length > 0 && <Form.Separator />}
+      {props.items.map((item, i) => (
+        <Form.Checkbox
+          key={contextKey(item, i)}
+          id={contextKey(item, i)}
+          label={item.label}
+          value={isEnabled(item, i)}
+          onChange={() => props.onToggle(item, i)}
+        />
+      ))}
     </Form>
   );
 }
@@ -448,32 +347,6 @@ function mergeWorkspaces(
     }
   }
   return dirs;
-}
-
-/** Group context items into sections by type, preserving original indices */
-function contextSections(items: ContextItem[]): [string, [ContextItem, number][]][] {
-  const groups: Record<string, [ContextItem, number][]> = {};
-  const order: string[] = [];
-
-  for (let i = 0; i < items.length; i++) {
-    const title = sectionTitle(items[i]);
-    if (!groups[title]) {
-      groups[title] = [];
-      order.push(title);
-    }
-    groups[title].push([items[i], i]);
-  }
-
-  return order.map((title) => [title, groups[title]]);
-}
-
-function sectionTitle(item: ContextItem): string {
-  switch (item.type) {
-    case "selectedText": return "Text";
-    case "clipboard": return "Clipboard";
-    case "url": return "Links";
-    case "screenshot": return "Screenshots";
-  }
 }
 
 function contextListIcon(item: ContextItem): Icon {
