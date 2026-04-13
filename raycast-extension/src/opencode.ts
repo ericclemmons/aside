@@ -91,8 +91,14 @@ export async function fetchRecentProjects(server: DiscoveredServer): Promise<str
     const response = await fetch(`${baseURL(server)}/project`, { headers: authHeaders(server) });
     if (!response.ok) return [];
     const json = (await response.json()) as Array<Record<string, unknown>>;
-    return json
-      .filter((obj) => obj.worktree && obj.worktree !== "/")
+    const oneWeekAgo = Date.now() - 7 * 86400 * 1000;
+    const projects = json
+      .filter((obj) => {
+        const w = obj.worktree as string | undefined;
+        if (!w || w === "/") return false;
+        if (w.includes("/.git/")) return false; // skip git submodule paths
+        return true;
+      })
       .map((obj) => {
         const time = obj.time as Record<string, unknown> | undefined;
         return {
@@ -100,9 +106,10 @@ export async function fetchRecentProjects(server: DiscoveredServer): Promise<str
           updatedAt: (time?.updated as number) || 0,
         };
       })
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, 5)
-      .map((p) => p.worktree);
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+    let recent = projects.filter((p) => p.updatedAt >= oneWeekAgo);
+    if (recent.length === 0 && projects.length > 0) recent = [projects[0]];
+    return recent.map((p) => p.worktree);
   } catch {
     return [];
   }
