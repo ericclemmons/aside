@@ -9,6 +9,7 @@ import {
   Icon,
   closeMainWindow,
   Color,
+  Keyboard,
 } from "@raycast/api";
 import { usePromise } from "@raycast/utils";
 import { useState, useCallback, useRef } from "react";
@@ -23,6 +24,16 @@ import {
 } from "./opencode";
 import { gatherContext, buildPrompt, type ContextItem } from "./context";
 import { learnFromEdit } from "./vocabulary";
+
+/** Keyboard number keys for Cmd+1 through Cmd+9 */
+const NUM_KEYS: Keyboard.KeyEquivalent[] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+
+interface DispatchTarget {
+  label: string;
+  icon: Icon;
+  sessionId?: string;
+  workDir?: string;
+}
 
 export default function DispatchCommand() {
   const [prompt, setPrompt] = useState("");
@@ -43,13 +54,38 @@ export default function DispatchCommand() {
     return { server, sessions, recentProjects, projectDir, contextItems };
   });
 
-
   const contextItems = data?.contextItems ?? [];
   const sessions = (data?.sessions ?? []).filter((s) => s.directory && s.directory !== "/");
   const projectDir = data?.projectDir;
   const recentProjects = data?.recentProjects ?? [];
   const defaultWorkDir = projectDir || recentProjects[0] || sessions[0]?.directory;
   const workspaceDirs = mergeWorkspaces(recentProjects, sessions);
+
+  // Build ordered dispatch targets: new session in latest workspace, then recent sessions, then other workspaces
+  const targets: DispatchTarget[] = [];
+  if (defaultWorkDir) {
+    targets.push({
+      label: `New session in ${abbreviateHome(defaultWorkDir)}`,
+      icon: Icon.Plus,
+      workDir: defaultWorkDir,
+    });
+  }
+  for (const s of sessions) {
+    targets.push({
+      label: `${s.name} · ${timeAgo(s.updatedAt)}`,
+      icon: Icon.Message,
+      sessionId: s.id,
+    });
+  }
+  for (const dir of workspaceDirs) {
+    if (dir !== defaultWorkDir) {
+      targets.push({
+        label: `New session in ${abbreviateHome(dir)}`,
+        icon: Icon.Plus,
+        workDir: dir,
+      });
+    }
+  }
 
   function isItemEnabled(item: ContextItem, index: number): boolean {
     const key = contextKey(item, index);
@@ -84,13 +120,12 @@ export default function DispatchCommand() {
       await closeMainWindow({ clearRootSearch: true });
       await showHUD(`Dispatched to ${dest}`);
 
-      const workDir = workingDirectory;
       dispatchToOpenCode({
         prompt: fullPrompt,
         server: data.server,
         sessionId,
         filePaths,
-        workingDirectory: workDir,
+        workingDirectory,
       }).then(async (result) => {
         if (result.success) {
           const original = initialPromptRef.current;
@@ -102,6 +137,10 @@ export default function DispatchCommand() {
     },
     [data, prompt, contextItems, toggledItems, defaultWorkDir],
   );
+
+  function dispatchTarget(t: DispatchTarget) {
+    doDispatch(t.sessionId, t.workDir);
+  }
 
   if (error) {
     return (
@@ -120,43 +159,20 @@ export default function DispatchCommand() {
     );
   }
 
-  function sessionActions() {
+  /** Actions available on every item — dispatch targets with Cmd+1-9 shortcuts */
+  function dispatchActions() {
     return (
-      <>
-        {sessions.length > 0 && (
-          <ActionPanel.Section title="Add to Session">
-            {sessions.map((s, idx) => (
-              <Action
-                key={s.id}
-                title={`${s.name} · ${timeAgo(s.updatedAt)}`}
-                icon={Icon.Message}
-                shortcut={idx === 0 ? { modifiers: ["cmd"], key: "return" } : undefined}
-                onAction={() => doDispatch(s.id)}
-              />
-            ))}
-          </ActionPanel.Section>
-        )}
-        <ActionPanel.Section title="New Session in…">
+      <ActionPanel.Section title="Send to…">
+        {targets.map((t, idx) => (
           <Action
-            title={abbreviateHome(defaultWorkDir || "~")}
-            icon={Icon.Plus}
-            shortcut={sessions.length > 0
-              ? { modifiers: ["cmd", "shift"], key: "return" }
-              : { modifiers: ["cmd"], key: "return" }}
-            onAction={() => doDispatch(undefined)}
+            key={`target-${idx}`}
+            title={t.label}
+            icon={t.icon}
+            shortcut={idx < NUM_KEYS.length ? { modifiers: ["cmd"], key: NUM_KEYS[idx] } : undefined}
+            onAction={() => dispatchTarget(t)}
           />
-          {workspaceDirs
-            .filter((dir) => dir !== defaultWorkDir)
-            .map((dir) => (
-              <Action
-                key={`new-${dir}`}
-                title={abbreviateHome(dir)}
-                icon={Icon.Plus}
-                onAction={() => doDispatch(undefined, dir)}
-              />
-            ))}
-        </ActionPanel.Section>
-      </>
+        ))}
+      </ActionPanel.Section>
     );
   }
 
@@ -177,10 +193,15 @@ export default function DispatchCommand() {
 
   const hasContext = contextItems.length > 0;
 
+  // Build hint string for placeholder
+  const hint = targets.length > 0
+    ? `↵ toggle · ⌘1 ${targets[0].label.split(" in ").pop() || "send"}`
+    : "↵ toggle";
+
   return (
     <List
       isLoading={isLoading}
-      searchBarPlaceholder="Prompt…  ⌘↵ last session · ⌘⇧↵ new session"
+      searchBarPlaceholder={`Prompt…  ${hint}`}
       onSearchTextChange={(text) => {
         setPrompt(text);
         if (initialPromptRef.current === null && text.trim().length > 0) {
@@ -190,6 +211,7 @@ export default function DispatchCommand() {
       filtering={false}
       isShowingDetail={hasContext}
     >
+      {/* Context section */}
       {hasContext && contextSections(contextItems).map(([sectionTitle, items]) => (
         <List.Section key={sectionTitle} title={sectionTitle}>
           {items.map(([item, i]) => {
@@ -212,7 +234,7 @@ export default function DispatchCommand() {
                       icon={enabled ? Icon.XMarkCircle : Icon.CheckCircle}
                       onAction={() => toggleItem(item, i)}
                     />
-                    {sessionActions()}
+                    {dispatchActions()}
                   </ActionPanel>
                 }
               />
@@ -221,15 +243,32 @@ export default function DispatchCommand() {
         </List.Section>
       ))}
 
-      {!hasContext && (
+      {/* Dispatch targets section — always visible */}
+      <List.Section title="Send to…">
+        {targets.map((t, idx) => (
+          <List.Item
+            key={`target-${idx}`}
+            icon={t.icon}
+            title={t.label}
+            accessories={idx < NUM_KEYS.length ? [{ tag: `⌘${NUM_KEYS[idx]}` }] : []}
+            actions={
+              <ActionPanel>
+                <Action
+                  title={t.label}
+                  icon={t.icon}
+                  onAction={() => dispatchTarget(t)}
+                />
+                {dispatchActions()}
+              </ActionPanel>
+            }
+          />
+        ))}
+      </List.Section>
+
+      {!hasContext && targets.length === 0 && (
         <List.EmptyView
-          title="No context detected"
-          description="Type a prompt and press ⌘↵ to send"
-          actions={
-            <ActionPanel>
-              {sessionActions()}
-            </ActionPanel>
-          }
+          title="No context or sessions"
+          description="Type a prompt and press Enter to send"
         />
       )}
     </List>
