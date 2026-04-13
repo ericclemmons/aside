@@ -137,8 +137,9 @@ async function captureRecentScreenshots(): Promise<ContextItem[]> {
       })
       .filter((f) => now - f.mtime < maxAgeMs)
       .sort((a, b) => b.mtime - a.mtime)
-      .slice(0, 3);
+      .slice(0, 5);
 
+    const oneMinuteMs = 60 * 1000;
     for (const s of screenshots) {
       const ago = Math.floor((now - s.mtime) / 1000);
       const agoStr = ago < 60 ? `${ago}s ago` : `${Math.floor(ago / 60)}m ago`;
@@ -146,7 +147,7 @@ async function captureRecentScreenshots(): Promise<ContextItem[]> {
         type: "screenshot",
         label: `Screenshot · ${agoStr}`,
         value: s.path,
-        defaultEnabled: false,
+        defaultEnabled: (now - s.mtime) < oneMinuteMs,
       });
     }
   } catch {
