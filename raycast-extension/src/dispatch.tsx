@@ -75,8 +75,8 @@ export default function DispatchCommand() {
       const workingDirectory = workDirOverride || projectDir || sessions[0]?.directory;
       const dest = abbreviateHome(workingDirectory || "~");
 
+      await showToast({ style: Toast.Style.Animated, title: `Dispatching to ${dest}…` });
       await closeMainWindow({ clearRootSearch: true });
-      const toast = await showToast({ style: Toast.Style.Animated, title: `Dispatching to ${dest}…` });
 
       const result = await dispatchToOpenCode({
         prompt: fullPrompt,
