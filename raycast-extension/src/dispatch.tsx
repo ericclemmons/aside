@@ -22,7 +22,7 @@ import {
   abbreviateHome,
   timeAgo,
 } from "./opencode";
-import { gatherContext, buildPrompt, type ContextItem } from "./context";
+import { gatherContext, buildPrompt, type ContextItem, type GatheredContext } from "./context";
 import { learnFromEdit } from "./vocabulary";
 
 interface DispatchTarget {
@@ -42,21 +42,19 @@ export default function DispatchCommand() {
     const server = discoverServer();
     if (!server) throw new Error("not_found");
 
-    const [sessions, recentProjects, projectDir, contextItems] = await Promise.all([
+    const [sessions, recentProjects, projectDir, context] = await Promise.all([
       fetchSessions(server),
       fetchRecentProjects(server),
       fetchProjectDirectory(server),
       gatherContext(),
     ]);
 
-    return { server, sessions, recentProjects, projectDir, contextItems };
+    return { server, sessions, recentProjects, projectDir, context };
   });
 
-  const contextItems = data?.contextItems ?? [];
-  // Split context: text items (checkboxes) vs file items (file picker)
-  const textContextItems = contextItems.filter((c) => c.type !== "screenshot");
-  const autoScreenshots = contextItems.filter((c) => c.type === "screenshot" && c.defaultEnabled).map((c) => c.value);
-  const allFiles = [...new Set([...autoScreenshots, ...extraFiles])];
+  const context: GatheredContext = data?.context ?? { items: [], files: [] };
+  const textContextItems = context.items;
+  const allFiles = [...new Set([...context.files, ...extraFiles])];
   // Combined for counting and dispatch
   const allContextItems: ContextItem[] = [
     ...textContextItems,

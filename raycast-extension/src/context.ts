@@ -1,4 +1,4 @@
-import { getSelectedText, getFrontmostApplication, Clipboard } from "@raycast/api";
+import { getSelectedText, getFrontmostApplication, Clipboard, getSelectedFinderItems } from "@raycast/api";
 import { runAppleScript } from "@raycast/utils";
 import { readdirSync, statSync } from "fs";
 import { join } from "path";
@@ -23,8 +23,15 @@ interface Preferences {
  * Selected text is deduped against clipboard (Raycast's getSelectedText
  * sometimes returns clipboard contents when nothing is actually selected).
  */
-export async function gatherContext(): Promise<ContextItem[]> {
+export interface GatheredContext {
+  items: ContextItem[];
+  /** File paths auto-detected (Finder selection + recent screenshots) */
+  files: string[];
+}
+
+export async function gatherContext(): Promise<GatheredContext> {
   const items: ContextItem[] = [];
+  const files: string[] = [];
 
   // Read clipboard first so we can dedupe selected text against it
   const clipboardText = await Clipboard.readText().catch(() => undefined);
@@ -34,6 +41,7 @@ export async function gatherContext(): Promise<ContextItem[]> {
     captureClipboardText(clipboardText),
     captureBrowserURL(),
     captureRecentScreenshots(),
+    captureSelectedFinderFiles(),
   ]);
 
   for (const result of results) {
@@ -46,7 +54,37 @@ export async function gatherContext(): Promise<ContextItem[]> {
     }
   }
 
-  return items;
+  // Extract auto-enabled screenshots as files for the file picker
+  const screenshotFiles = items
+    .filter((item) => item.type === "screenshot" && item.defaultEnabled)
+    .map((item) => item.value);
+  // Remove screenshots from items — they go in the file picker
+  const textItems = items.filter((item) => item.type !== "screenshot");
+
+  // Add Finder-selected files
+  const finderResult = results[4];
+  if (finderResult.status === "fulfilled" && finderResult.value) {
+    const finderFiles = finderResult.value as ContextItem[];
+    files.push(...finderFiles.map((f) => f.value));
+  }
+
+  files.push(...screenshotFiles);
+
+  return { items: textItems, files: [...new Set(files)] };
+}
+
+async function captureSelectedFinderFiles(): Promise<ContextItem[]> {
+  try {
+    const finderItems = await getSelectedFinderItems();
+    return finderItems.map((item) => ({
+      type: "screenshot" as const, // reuse type for file paths
+      label: item.path.split("/").pop() || item.path,
+      value: item.path,
+      defaultEnabled: true,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 async function captureSelectedText(clipboardText: string | undefined): Promise<ContextItem | null> {
