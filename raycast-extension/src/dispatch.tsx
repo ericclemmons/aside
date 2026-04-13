@@ -123,11 +123,26 @@ export default function DispatchCommand() {
   function sessionActions() {
     return (
       <>
+        {sessions.length > 0 && (
+          <ActionPanel.Section title="Add to Session">
+            {sessions.map((s, idx) => (
+              <Action
+                key={s.id}
+                title={`${s.name} · ${timeAgo(s.updatedAt)}`}
+                icon={Icon.Message}
+                shortcut={idx === 0 ? { modifiers: ["cmd"], key: "return" } : undefined}
+                onAction={() => doDispatch(s.id)}
+              />
+            ))}
+          </ActionPanel.Section>
+        )}
         <ActionPanel.Section title="New Session in…">
           <Action
             title={abbreviateHome(defaultWorkDir || "~")}
             icon={Icon.Plus}
-            shortcut={{ modifiers: ["cmd"], key: "return" }}
+            shortcut={sessions.length > 0
+              ? { modifiers: ["cmd", "shift"], key: "return" }
+              : { modifiers: ["cmd"], key: "return" }}
             onAction={() => doDispatch(undefined)}
           />
           {workspaceDirs
@@ -141,18 +156,6 @@ export default function DispatchCommand() {
               />
             ))}
         </ActionPanel.Section>
-        {sessions.length > 0 && (
-          <ActionPanel.Section title="Add to Session">
-            {sessions.map((s) => (
-              <Action
-                key={s.id}
-                title={`${s.name} · ${timeAgo(s.updatedAt)}`}
-                icon={Icon.Message}
-                onAction={() => doDispatch(s.id)}
-              />
-            ))}
-          </ActionPanel.Section>
-        )}
       </>
     );
   }
@@ -177,7 +180,7 @@ export default function DispatchCommand() {
   return (
     <List
       isLoading={isLoading}
-      searchBarPlaceholder="Prompt…  ⌘↵ to send"
+      searchBarPlaceholder="Prompt…  ⌘↵ last session · ⌘⇧↵ new session"
       onSearchTextChange={(text) => {
         setPrompt(text);
         if (initialPromptRef.current === null && text.trim().length > 0) {
