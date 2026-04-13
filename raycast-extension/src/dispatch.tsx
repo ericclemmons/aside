@@ -171,9 +171,9 @@ export default function DispatchCommand() {
       filtering={false}
       isShowingDetail={hasContext}
     >
-      {hasContext && (
-        <List.Section title="Context" subtitle={projectDir ? abbreviateHome(projectDir) : undefined}>
-          {contextItems.map((item, i) => {
+      {hasContext && contextSections(contextItems).map(([sectionTitle, items]) => (
+        <List.Section key={sectionTitle} title={sectionTitle}>
+          {items.map(([item, i]) => {
             const enabled = isItemEnabled(item, i);
             return (
               <List.Item
@@ -200,7 +200,7 @@ export default function DispatchCommand() {
             );
           })}
         </List.Section>
-      )}
+      ))}
 
       {!hasContext && (
         <List.EmptyView
@@ -219,6 +219,32 @@ export default function DispatchCommand() {
 
 function contextKey(item: ContextItem, index: number): string {
   return `ctx-${item.type}-${index}`;
+}
+
+/** Group context items into sections by type, preserving original indices */
+function contextSections(items: ContextItem[]): [string, [ContextItem, number][]][] {
+  const groups: Record<string, [ContextItem, number][]> = {};
+  const order: string[] = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const title = sectionTitle(items[i]);
+    if (!groups[title]) {
+      groups[title] = [];
+      order.push(title);
+    }
+    groups[title].push([items[i], i]);
+  }
+
+  return order.map((title) => [title, groups[title]]);
+}
+
+function sectionTitle(item: ContextItem): string {
+  switch (item.type) {
+    case "selectedText": return "Text";
+    case "clipboard": return "Clipboard";
+    case "url": return "Links";
+    case "screenshot": return "Screenshots";
+  }
 }
 
 function contextListIcon(item: ContextItem): Icon {
