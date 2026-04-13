@@ -128,26 +128,24 @@ export default function DispatchCommand() {
   function sessionActions() {
     return (
       <>
-        <Action
-          title={`New Session in ${abbreviateHome(defaultWorkDir || "~")}`}
-          icon={Icon.Plus}
-          shortcut={{ modifiers: ["cmd"], key: "return" }}
-          onAction={() => doDispatch(undefined)}
-        />
-        {workspaceDirs.length > 1 && (
-          <ActionPanel.Section title="New Session in…">
-            {workspaceDirs
-              .filter((dir) => dir !== defaultWorkDir)
-              .map((dir) => (
-                <Action
-                  key={`new-${dir}`}
-                  title={abbreviateHome(dir)}
-                  icon={Icon.Plus}
-                  onAction={() => doDispatch(undefined, dir)}
-                />
-              ))}
-          </ActionPanel.Section>
-        )}
+        <ActionPanel.Section title="New Session in…">
+          <Action
+            title={abbreviateHome(defaultWorkDir || "~")}
+            icon={Icon.Plus}
+            shortcut={{ modifiers: ["cmd"], key: "return" }}
+            onAction={() => doDispatch(undefined)}
+          />
+          {workspaceDirs
+            .filter((dir) => dir !== defaultWorkDir)
+            .map((dir) => (
+              <Action
+                key={`new-${dir}`}
+                title={abbreviateHome(dir)}
+                icon={Icon.Plus}
+                onAction={() => doDispatch(undefined, dir)}
+              />
+            ))}
+        </ActionPanel.Section>
         {sessions.length > 0 && (
           <ActionPanel.Section title="Add to Session">
             {sessions.map((s) => (
