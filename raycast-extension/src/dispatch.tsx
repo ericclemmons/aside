@@ -142,7 +142,7 @@ export default function DispatchCommand() {
           </ActionPanel.Section>
         )}
         {sessions.length > 0 && (
-          <ActionPanel.Section title="Send to Session">
+          <ActionPanel.Section title="Add to Session">
             {sessions.map((s) => (
               <Action
                 key={s.id}
