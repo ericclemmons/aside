@@ -7,7 +7,7 @@ import {
   showToast,
   Toast,
   Icon,
-  popToRoot,
+  closeMainWindow,
   Color,
 } from "@raycast/api";
 import { usePromise } from "@raycast/utils";
@@ -72,8 +72,8 @@ export default function DispatchCommand() {
       const fullPrompt = buildPrompt(text, activeContext);
       const filePaths = activeContext.filter((c) => c.type === "screenshot").map((c) => c.value);
 
-      await showToast({ style: Toast.Style.Animated, title: "Dispatching..." });
-      await popToRoot();
+      await closeMainWindow();
+      await showHUD("Dispatching…");
 
       // Fire dispatch in background — update toast on completion
       const workingDirectory = workDirOverride || projectDir || sessions[0]?.directory;
