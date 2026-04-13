@@ -15,6 +15,7 @@ import { useState, useCallback, useRef } from "react";
 import {
   discoverServer,
   fetchSessions,
+  fetchRecentProjects,
   fetchProjectDirectory,
   dispatch as dispatchToOpenCode,
   abbreviateHome,
@@ -32,20 +33,22 @@ export default function DispatchCommand() {
     const server = discoverServer();
     if (!server) throw new Error("not_found");
 
-    const [sessions, projectDir, contextItems] = await Promise.all([
+    const [sessions, recentProjects, projectDir, contextItems] = await Promise.all([
       fetchSessions(server),
+      fetchRecentProjects(server),
       fetchProjectDirectory(server),
       gatherContext(),
     ]);
 
-    return { server, sessions, projectDir, contextItems };
+    return { server, sessions, recentProjects, projectDir, contextItems };
   });
 
   const contextItems = data?.contextItems ?? [];
   const sessions = (data?.sessions ?? []).filter((s) => s.directory && s.directory !== "/");
   const projectDir = data?.projectDir;
-  const defaultWorkDir = projectDir || sessions[0]?.directory;
-  const workspaceDirs = uniqueWorkspaces(sessions);
+  const recentProjects = data?.recentProjects ?? [];
+  const defaultWorkDir = projectDir || recentProjects[0] || sessions[0]?.directory;
+  const workspaceDirs = mergeWorkspaces(recentProjects, sessions);
 
   function isItemEnabled(item: ContextItem, index: number): boolean {
     const key = contextKey(item, index);
@@ -235,10 +238,19 @@ function contextKey(item: ContextItem, index: number): string {
   return `ctx-${item.type}-${index}`;
 }
 
-/** Unique workspace directories from sessions, ordered by most recent */
-function uniqueWorkspaces(sessions: { directory?: string }[]): string[] {
+/** Merge recent projects (from API) with session directories, deduped */
+function mergeWorkspaces(
+  recentProjects: string[],
+  sessions: { directory?: string }[],
+): string[] {
   const seen = new Set<string>();
   const dirs: string[] = [];
+  for (const dir of recentProjects) {
+    if (!seen.has(dir)) {
+      seen.add(dir);
+      dirs.push(dir);
+    }
+  }
   for (const s of sessions) {
     if (s.directory && !seen.has(s.directory)) {
       seen.add(s.directory);

@@ -82,6 +82,32 @@ export async function fetchSessions(server: DiscoveredServer): Promise<Session[]
     .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 }
 
+/**
+ * Fetch recent projects from the OpenCode server API.
+ * Returns worktree paths sorted by most recently updated.
+ */
+export async function fetchRecentProjects(server: DiscoveredServer): Promise<string[]> {
+  try {
+    const response = await fetch(`${baseURL(server)}/project`, { headers: authHeaders(server) });
+    if (!response.ok) return [];
+    const json = (await response.json()) as Array<Record<string, unknown>>;
+    return json
+      .filter((obj) => obj.worktree && obj.worktree !== "/")
+      .map((obj) => {
+        const time = obj.time as Record<string, unknown> | undefined;
+        return {
+          worktree: obj.worktree as string,
+          updatedAt: (time?.updated as number) || 0,
+        };
+      })
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 5)
+      .map((p) => p.worktree);
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchProjectDirectory(server: DiscoveredServer): Promise<string | null> {
   try {
     const response = await fetch(`${baseURL(server)}/project/current`, { headers: authHeaders(server) });
