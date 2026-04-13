@@ -76,25 +76,23 @@ export default function DispatchCommand() {
       const dest = abbreviateHome(workingDirectory || "~");
 
       await closeMainWindow({ clearRootSearch: true });
-      await showHUD(`Dispatching to ${dest}…`);
+      await showHUD(`Dispatched to ${dest}`);
 
-      const result = await dispatchToOpenCode({
+      const workDir = workingDirectory;
+      dispatchToOpenCode({
         prompt: fullPrompt,
         server: data.server,
         sessionId,
         filePaths,
-        workingDirectory,
-      });
-
-      if (result.success) {
-        await showHUD(`✓ Dispatched to ${dest}`);
-        const original = initialPromptRef.current;
-        if (original && original !== text) {
-          learnFromEdit(original, text, data.server).catch(() => {});
+        workingDirectory: workDir,
+      }).then(async (result) => {
+        if (result.success) {
+          const original = initialPromptRef.current;
+          if (original && original !== text) {
+            learnFromEdit(original, text, data.server).catch(() => {});
+          }
         }
-      } else {
-        await showHUD(`✗ Failed: ${result.error?.slice(0, 80) || "unknown error"}`);
-      }
+      });
     },
     [data, prompt, contextItems, toggledItems, projectDir],
   );
