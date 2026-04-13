@@ -59,7 +59,7 @@ export default function DispatchCommand() {
   }
 
   const doDispatch = useCallback(
-    async (sessionId: string | undefined) => {
+    async (sessionId: string | undefined, workDirOverride?: string) => {
       if (!data) return;
 
       const text = prompt.trim();
@@ -79,7 +79,7 @@ export default function DispatchCommand() {
         server: data.server,
         sessionId,
         filePaths,
-        workingDirectory: projectDir || sessions[0]?.directory,
+        workingDirectory: workDirOverride || projectDir || sessions[0]?.directory,
       });
 
       if (result.success) {
@@ -116,15 +116,32 @@ export default function DispatchCommand() {
     );
   }
 
+  const defaultWorkDir = projectDir || sessions[0]?.directory;
+  const workspaceDirs = uniqueWorkspaces(sessions);
+
   function sessionActions() {
     return (
       <>
         <Action
-          title="New Session"
+          title={`New Session in ${abbreviateHome(defaultWorkDir || "~")}`}
           icon={Icon.Plus}
           shortcut={{ modifiers: ["cmd"], key: "return" }}
           onAction={() => doDispatch(undefined)}
         />
+        {workspaceDirs.length > 1 && (
+          <ActionPanel.Section title="New Session in…">
+            {workspaceDirs
+              .filter((dir) => dir !== defaultWorkDir)
+              .map((dir) => (
+                <Action
+                  key={`new-${dir}`}
+                  title={abbreviateHome(dir)}
+                  icon={Icon.Plus}
+                  onAction={() => doDispatch(undefined, dir)}
+                />
+              ))}
+          </ActionPanel.Section>
+        )}
         {sessions.length > 0 && (
           <ActionPanel.Section title="Send to Session">
             {sessions.map((s) => (
@@ -219,6 +236,19 @@ export default function DispatchCommand() {
 
 function contextKey(item: ContextItem, index: number): string {
   return `ctx-${item.type}-${index}`;
+}
+
+/** Unique workspace directories from sessions, ordered by most recent */
+function uniqueWorkspaces(sessions: { directory?: string }[]): string[] {
+  const seen = new Set<string>();
+  const dirs: string[] = [];
+  for (const s of sessions) {
+    if (s.directory && !seen.has(s.directory)) {
+      seen.add(s.directory);
+      dirs.push(s.directory);
+    }
+  }
+  return dirs;
 }
 
 /** Group context items into sections by type, preserving original indices */
