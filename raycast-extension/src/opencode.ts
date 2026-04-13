@@ -1,0 +1,226 @@
+import { execSync, spawn } from "child_process";
+
+export interface DiscoveredServer {
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  cliPath: string;
+}
+
+export interface Session {
+  id: string;
+  name: string;
+  updatedAt: Date;
+  directory?: string;
+}
+
+function baseURL(server: DiscoveredServer): string {
+  return `http://${server.host}:${server.port}`;
+}
+
+function authHeaders(server: DiscoveredServer): Record<string, string> {
+  if (!server.username || !server.password) return {};
+  const encoded = Buffer.from(`${server.username}:${server.password}`).toString("base64");
+  return { Authorization: `Basic ${encoded}` };
+}
+
+/**
+ * Discover a running OpenCode Desktop server by scanning process list.
+ */
+export function discoverServer(): DiscoveredServer | null {
+  let psOutput: string;
+  try {
+    psOutput = execSync("ps ewwA -o pid,command", { encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 });
+  } catch {
+    return null;
+  }
+
+  for (const line of psOutput.split("\n")) {
+    if (!line.includes("OpenCode.app") || !line.includes("opencode-cli") || !line.includes("serve")) continue;
+    if (line.includes("grep")) continue;
+
+    const portMatch = line.match(/--port[= ](\d+)/);
+    if (!portMatch) continue;
+
+    const passMatch = line.match(/OPENCODE_SERVER_PASSWORD=(\S+)/);
+    if (!passMatch) continue;
+
+    const hostMatch = line.match(/--hostname[= ](\S+)/);
+    const userMatch = line.match(/OPENCODE_SERVER_USERNAME=(\S+)/);
+    const cliMatch = line.match(/\/[^ ]*opencode-cli/);
+
+    return {
+      host: hostMatch?.[1] ?? "127.0.0.1",
+      port: parseInt(portMatch[1], 10),
+      username: userMatch?.[1] ?? "opencode",
+      password: passMatch[1],
+      cliPath: cliMatch?.[0] ?? "",
+    };
+  }
+
+  return null;
+}
+
+export async function fetchSessions(server: DiscoveredServer): Promise<Session[]> {
+  const response = await fetch(`${baseURL(server)}/session`, { headers: authHeaders(server) });
+  if (!response.ok) return [];
+
+  const json = (await response.json()) as Array<Record<string, unknown>>;
+
+  return json
+    .filter((obj) => obj.id && !(obj.time as Record<string, unknown>)?.archived)
+    .map((obj) => {
+      const time = obj.time as Record<string, unknown> | undefined;
+      return {
+        id: obj.id as string,
+        name: (obj.title as string) || (obj.id as string),
+        updatedAt: new Date(((time?.updated as number) || (time?.created as number) || 0)),
+        directory: obj.directory as string | undefined,
+      };
+    })
+    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+}
+
+/**
+ * Fetch recent projects from the OpenCode server API.
+ * Returns worktree paths sorted by most recently updated.
+ */
+export async function fetchRecentProjects(server: DiscoveredServer): Promise<string[]> {
+  try {
+    const response = await fetch(`${baseURL(server)}/project`, { headers: authHeaders(server) });
+    if (!response.ok) return [];
+    const json = (await response.json()) as Array<Record<string, unknown>>;
+    const oneWeekAgo = Date.now() - 7 * 86400 * 1000;
+    const projects = json
+      .filter((obj) => {
+        const w = obj.worktree as string | undefined;
+        if (!w || w === "/") return false;
+        if (w.includes("/.git/")) return false; // skip git submodule paths
+        return true;
+      })
+      .map((obj) => {
+        const time = obj.time as Record<string, unknown> | undefined;
+        return {
+          worktree: obj.worktree as string,
+          updatedAt: (time?.updated as number) || 0,
+        };
+      })
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+    let recent = projects.filter((p) => p.updatedAt >= oneWeekAgo);
+    if (recent.length === 0 && projects.length > 0) recent = [projects[0]];
+    return recent.map((p) => p.worktree);
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchProjectDirectory(server: DiscoveredServer): Promise<string | null> {
+  try {
+    const response = await fetch(`${baseURL(server)}/project/current`, { headers: authHeaders(server) });
+    if (!response.ok) return null;
+    const json = (await response.json()) as Record<string, unknown>;
+    const worktree = json.worktree as string | undefined;
+    return worktree && worktree !== "/" ? worktree : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Dispatch a prompt to OpenCode via the CLI.
+ * Matches the Aside Swift app's CLIDispatcher exactly:
+ * - --file=path (single arg, handles spaces via execv)
+ * - prompt split by spaces/tabs into separate argv entries
+ * - fire-and-forget (don't wait for exit)
+ * - Process spawned directly (no shell)
+ */
+export async function dispatch(opts: {
+  prompt: string;
+  server: DiscoveredServer;
+  sessionId?: string;
+  filePaths?: string[];
+  workingDirectory?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const { prompt, server, sessionId, filePaths = [], workingDirectory } = opts;
+  const home = process.env.HOME ?? "";
+  const opencodePath = server.cliPath || `${home}/.opencode/bin/opencode`;
+
+  // Global flags before subcommand (matches Swift: --attach, --session, --dir before "run")
+  const args: string[] = ["--attach", baseURL(server)];
+  if (sessionId) args.push("--session", sessionId);
+  if (workingDirectory) args.push("--dir", workingDirectory);
+
+  args.push("run");
+
+  // --file=path as single arg (matches Swift: args.append("--file=\(path)"))
+  for (const path of filePaths) args.push(`--file=${path}`);
+
+  // Prompt split by spaces/tabs into separate argv entries
+  // (matches Swift: prompt.components(separatedBy: .whitespaces).filter { !$0.isEmpty })
+  args.push("--");
+  args.push(...prompt.split(/[ \t]+/).filter(Boolean));
+
+  const env: Record<string, string> = { ...process.env } as Record<string, string>;
+  env.PATH = `${home}/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:${env.PATH || ""}`;
+  if (server.username) env.OPENCODE_SERVER_USERNAME = server.username;
+  if (server.password) env.OPENCODE_SERVER_PASSWORD = server.password;
+
+  console.log("[dispatch]", opencodePath, JSON.stringify(args));
+
+  // Fire-and-forget (matches Swift: process.run() without waitUntilExit)
+  return new Promise((resolve) => {
+    try {
+      const child = spawn(opencodePath, args, {
+        env,
+        cwd: workingDirectory || undefined,
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+
+      let stderr = "";
+      child.stderr.on("data", (data: Buffer) => {
+        const str = data.toString().trim();
+        if (str) {
+          console.error("[dispatch] stderr:", str);
+          stderr += str + "\n";
+        }
+      });
+
+      child.on("error", (err) => {
+        console.error("[dispatch] spawn error:", err.message);
+        resolve({ success: false, error: err.message });
+      });
+
+      child.on("exit", (code) => {
+        if (code !== 0) {
+          const detail = stderr.trim() || `opencode-cli exited with code ${code}`;
+          console.error("[dispatch] exited with code", code, detail);
+          resolve({ success: false, error: detail });
+        } else {
+          console.log("[dispatch] success");
+          resolve({ success: true });
+        }
+      });
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.error("[dispatch] failed:", error.message);
+      resolve({ success: false, error: error.message });
+    }
+  });
+}
+
+export function timeAgo(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return "now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+  return `${Math.floor(seconds / 604800)}w ago`;
+}
+
+export function abbreviateHome(path: string): string {
+  const home = process.env.HOME || "";
+  if (path === home) return "~";
+  if (path.startsWith(home + "/")) return "~" + path.slice(home.length);
+  return path;
+}
