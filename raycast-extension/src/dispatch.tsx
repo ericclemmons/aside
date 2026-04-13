@@ -9,7 +9,6 @@ import {
   Toast,
   Icon,
   closeMainWindow,
-  Keyboard,
   useNavigation,
 } from "@raycast/api";
 import { usePromise } from "@raycast/utils";
@@ -25,9 +24,6 @@ import {
 } from "./opencode";
 import { gatherContext, buildPrompt, type ContextItem } from "./context";
 import { learnFromEdit } from "./vocabulary";
-
-/** Keyboard number keys for Cmd+1 through Cmd+9 */
-const NUM_KEYS: Keyboard.KeyEquivalent[] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
 interface DispatchTarget {
   label: string;
@@ -170,7 +166,7 @@ export default function DispatchCommand() {
     );
   }
 
-  /** Dispatch target actions with Cmd+1-9 shortcuts */
+  /** Dispatch target actions */
   function dispatchActions() {
     return (
       <ActionPanel.Section title="Send to…">
@@ -179,7 +175,6 @@ export default function DispatchCommand() {
             key={`target-${idx}`}
             title={t.label}
             icon={t.icon}
-            shortcut={idx + 1 < NUM_KEYS.length ? { modifiers: ["cmd"], key: NUM_KEYS[idx + 1] } : undefined}
             onAction={() => dispatchTarget(t)}
           />
         ))}
