@@ -72,29 +72,28 @@ export default function DispatchCommand() {
       const fullPrompt = buildPrompt(text, activeContext);
       const filePaths = activeContext.filter((c) => c.type === "screenshot").map((c) => c.value);
 
-      const toast = await showToast({ style: Toast.Style.Animated, title: "Dispatching..." });
+      await showToast({ style: Toast.Style.Animated, title: "Dispatching..." });
+      await popToRoot();
 
-      const result = await dispatchToOpenCode({
+      // Fire dispatch in background — update toast on completion
+      const workingDirectory = workDirOverride || projectDir || sessions[0]?.directory;
+      dispatchToOpenCode({
         prompt: fullPrompt,
         server: data.server,
         sessionId,
         filePaths,
-        workingDirectory: workDirOverride || projectDir || sessions[0]?.directory,
-      });
-
-      if (result.success) {
-        toast.hide();
-        const original = initialPromptRef.current;
-        if (original && original !== text) {
-          learnFromEdit(original, text, data.server).catch(() => {});
+        workingDirectory,
+      }).then(async (result) => {
+        if (result.success) {
+          await showHUD("Dispatched to OpenCode");
+          const original = initialPromptRef.current;
+          if (original && original !== text) {
+            learnFromEdit(original, text, data.server).catch(() => {});
+          }
+        } else {
+          await showToast({ style: Toast.Style.Failure, title: "Dispatch Failed", message: result.error });
         }
-        await showHUD("Dispatched to OpenCode");
-        await popToRoot();
-      } else {
-        toast.style = Toast.Style.Failure;
-        toast.title = "Dispatch Failed";
-        toast.message = result.error;
-      }
+      });
     },
     [data, prompt, contextItems, toggledItems, projectDir],
   );
