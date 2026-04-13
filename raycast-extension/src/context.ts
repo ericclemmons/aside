@@ -36,12 +36,16 @@ export async function gatherContext(): Promise<GatheredContext> {
   // Read clipboard first so we can dedupe selected text against it
   const clipboardText = await Clipboard.readText().catch(() => undefined);
 
+  // Check for Finder-selected files first — if present, skip getSelectedText
+  // (Finder reports the filename as "selected text" which is noise)
+  const finderFiles = await captureSelectedFinderFiles();
+  const hasFinderFiles = finderFiles.length > 0;
+
   const results = await Promise.allSettled([
-    captureSelectedText(clipboardText),
+    hasFinderFiles ? null : captureSelectedText(clipboardText),
     captureClipboardText(clipboardText),
     captureBrowserURL(),
     captureRecentScreenshots(),
-    captureSelectedFinderFiles(),
   ]);
 
   for (const result of results) {
@@ -62,11 +66,7 @@ export async function gatherContext(): Promise<GatheredContext> {
   const textItems = items.filter((item) => item.type !== "screenshot");
 
   // Add Finder-selected files
-  const finderResult = results[4];
-  if (finderResult.status === "fulfilled" && finderResult.value) {
-    const finderFiles = finderResult.value as ContextItem[];
-    files.push(...finderFiles.map((f) => f.value));
-  }
+  files.push(...finderFiles.map((f) => f.value));
 
   files.push(...screenshotFiles);
 
