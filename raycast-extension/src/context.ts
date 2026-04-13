@@ -137,7 +137,7 @@ async function captureRecentScreenshots(): Promise<ContextItem[]> {
       })
       .filter((f) => now - f.mtime < maxAgeMs)
       .sort((a, b) => b.mtime - a.mtime)
-      .slice(0, 20);
+      .slice(0, 3);
 
     for (const s of screenshots) {
       const ago = Math.floor((now - s.mtime) / 1000);
