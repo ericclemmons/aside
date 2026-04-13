@@ -87,16 +87,13 @@ export default function DispatchCommand() {
       });
 
       if (result.success) {
-        toast.style = Toast.Style.Success;
-        toast.title = `Dispatched to ${dest}`;
+        await showHUD(`✓ Dispatched to ${dest}`);
         const original = initialPromptRef.current;
         if (original && original !== text) {
           learnFromEdit(original, text, data.server).catch(() => {});
         }
       } else {
-        toast.style = Toast.Style.Failure;
-        toast.title = "Dispatch Failed";
-        toast.message = result.error;
+        await showHUD(`✗ Failed: ${result.error?.slice(0, 80) || "unknown error"}`);
       }
     },
     [data, prompt, contextItems, toggledItems, projectDir],
