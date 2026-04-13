@@ -105,14 +105,6 @@ export default function DispatchCommand() {
     return key in toggledItems ? toggledItems[key] : item.defaultEnabled;
   }
 
-  function toggleItem(item: ContextItem, index: number) {
-    const key = contextKey(item, index);
-    setToggledItems((prev) => ({
-      ...prev,
-      [key]: !isItemEnabled(item, index),
-    }));
-  }
-
   const enabledCount = allContextItems.filter((item, i) => isItemEnabled(item, i)).length;
 
   const doDispatch = useCallback(
@@ -230,7 +222,7 @@ export default function DispatchCommand() {
                   <ContextEditor
                     items={allContextItems}
                     toggledItems={toggledItems}
-                    onToggle={toggleItem}
+                    onSetToggles={(toggles) => setToggledItems(toggles)}
                     onAddFiles={(files) => setExtraFiles((prev) => [...prev, ...files])}
                     dispatchActions={dispatchActions}
                   />
@@ -278,15 +270,27 @@ export default function DispatchCommand() {
 function ContextEditor(props: {
   items: ContextItem[];
   toggledItems: Record<string, boolean>;
-  onToggle: (item: ContextItem, index: number) => void;
+  onSetToggles: (toggles: Record<string, boolean>) => void;
   onAddFiles: (files: string[]) => void;
   dispatchActions: () => JSX.Element;
 }) {
   const { pop } = useNavigation();
 
-  function isEnabled(item: ContextItem, index: number): boolean {
+  function defaultEnabled(item: ContextItem, index: number): boolean {
     const key = contextKey(item, index);
     return key in props.toggledItems ? props.toggledItems[key] : item.defaultEnabled;
+  }
+
+  /** Read all checkbox values from form and sync back to parent */
+  function syncToggles(values: Record<string, unknown>) {
+    const toggles: Record<string, boolean> = {};
+    for (let i = 0; i < props.items.length; i++) {
+      const key = contextKey(props.items[i], i);
+      if (key in values) {
+        toggles[key] = values[key] as boolean;
+      }
+    }
+    props.onSetToggles(toggles);
   }
 
   return (
@@ -294,7 +298,16 @@ function ContextEditor(props: {
       navigationTitle="Context"
       actions={
         <ActionPanel>
-          <Action title="Done" icon={Icon.ArrowLeft} onAction={pop} />
+          <Action.SubmitForm
+            title="Done"
+            icon={Icon.ArrowLeft}
+            onSubmit={(values) => {
+              syncToggles(values);
+              const files = (values.attachments as string[]) || [];
+              if (files.length > 0) props.onAddFiles(files);
+              pop();
+            }}
+          />
           {props.dispatchActions()}
         </ActionPanel>
       }
@@ -303,24 +316,28 @@ function ContextEditor(props: {
         id="attachments"
         title="Attach Files"
         allowMultipleSelection
-        onChange={(files) => {
-          if (files.length > 0) {
-            props.onAddFiles(files);
-          }
-        }}
       />
       {props.items.length > 0 && <Form.Separator />}
       {props.items.map((item, i) => (
         <Form.Checkbox
           key={contextKey(item, i)}
           id={contextKey(item, i)}
+          title={contextTypeLabel(item)}
           label={item.label}
-          value={isEnabled(item, i)}
-          onChange={() => props.onToggle(item, i)}
+          defaultValue={defaultEnabled(item, i)}
         />
       ))}
     </Form>
   );
+}
+
+function contextTypeLabel(item: ContextItem): string {
+  switch (item.type) {
+    case "selectedText": return "Selected Text";
+    case "clipboard": return "Clipboard";
+    case "url": return "Current URL";
+    case "screenshot": return "Screenshot";
+  }
 }
 
 function contextKey(item: ContextItem, index: number): string {
