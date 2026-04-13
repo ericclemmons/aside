@@ -186,15 +186,10 @@ export default function DispatchCommand() {
     ? "No context"
     : `${enabledCount} of ${allContextItems.length} items attached`;
 
-  // Build hint string for placeholder
-  const hint = targets.length > 0
-    ? `⌘1 context · ⌘2 ${targets[0].label.split(" in ").pop() || "send"}`
-    : "";
-
   return (
     <List
       isLoading={isLoading}
-      searchBarPlaceholder={`Prompt…  ${hint}`}
+      searchBarPlaceholder="Prompt…"
       onSearchTextChange={(text) => {
         setPrompt(text);
         if (initialPromptRef.current === null && text.trim().length > 0) {
@@ -306,13 +301,6 @@ function ContextEditor(props: {
         </ActionPanel>
       }
     >
-      <Form.FilePicker
-        id="files"
-        title="Files"
-        allowMultipleSelection
-        defaultValue={props.defaultFiles}
-      />
-      {props.textItems.length > 0 && <Form.Separator />}
       {props.textItems.map((item, i) => (
         <Form.Checkbox
           key={contextKey(item, i)}
@@ -322,6 +310,13 @@ function ContextEditor(props: {
           defaultValue={defaultEnabled(item, i)}
         />
       ))}
+      {props.textItems.length > 0 && <Form.Separator />}
+      <Form.FilePicker
+        id="files"
+        title="Files"
+        allowMultipleSelection
+        defaultValue={props.defaultFiles}
+      />
     </Form>
   );
 }
