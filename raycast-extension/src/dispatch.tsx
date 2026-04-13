@@ -179,7 +179,7 @@ export default function DispatchCommand() {
             key={`target-${idx}`}
             title={t.label}
             icon={t.icon}
-            shortcut={idx < NUM_KEYS.length ? { modifiers: ["cmd"], key: NUM_KEYS[idx] } : undefined}
+            shortcut={idx + 1 < NUM_KEYS.length ? { modifiers: ["cmd"], key: NUM_KEYS[idx + 1] } : undefined}
             onAction={() => dispatchTarget(t)}
           />
         ))}
@@ -193,7 +193,7 @@ export default function DispatchCommand() {
 
   // Build hint string for placeholder
   const hint = targets.length > 0
-    ? `⌘1 ${targets[0].label.split(" in ").pop() || "send"}`
+    ? `⌘1 context · ⌘2 ${targets[0].label.split(" in ").pop() || "send"}`
     : "";
 
   return (
