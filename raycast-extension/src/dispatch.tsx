@@ -11,7 +11,7 @@ import {
   Color,
 } from "@raycast/api";
 import { usePromise } from "@raycast/utils";
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   discoverServer,
   fetchSessions,
@@ -29,7 +29,7 @@ export default function DispatchCommand() {
   const initialPromptRef = useRef<string | null>(null);
   const [toggledItems, setToggledItems] = useState<Record<string, boolean>>({});
 
-  const { data, isLoading, error, revalidate } = usePromise(async () => {
+  const { data, isLoading, error } = usePromise(async () => {
     const server = discoverServer();
     if (!server) throw new Error("not_found");
 
@@ -43,11 +43,6 @@ export default function DispatchCommand() {
     return { server, sessions, recentProjects, projectDir, contextItems };
   });
 
-  // Keep sessions/projects fresh — component may stay mounted between invocations
-  useEffect(() => {
-    const id = setInterval(revalidate, 3000);
-    return () => clearInterval(id);
-  }, [revalidate]);
 
   const contextItems = data?.contextItems ?? [];
   const sessions = (data?.sessions ?? []).filter((s) => s.directory && s.directory !== "/");
